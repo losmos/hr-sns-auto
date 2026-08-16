@@ -12,6 +12,8 @@ agent_outputs/llm_context/*
 *.temp
 *.log
 *.swp
+__pycache__/
+*.py[cod]
 
 # OS/editor files
 .DS_Store

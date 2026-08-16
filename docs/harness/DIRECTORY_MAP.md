@@ -20,31 +20,36 @@
 │   └── run_logs/
 │       └── .gitkeep
 ├── docs/
-│   └── harness/
-│       ├── README.md
-│       ├── QUICKSTART.md
-│       ├── PROJECT_CONTEXT.md
-│       ├── HANDOFF.md
-│       ├── DIRECTORY_MAP.md
-│       ├── CLARIFICATION_FORMAT.md
-│       ├── archive/
-│       │   └── .gitkeep
-│       └── flows/
-│           ├── .gitkeep
-│           ├── README.md
-│           ├── multi_user_workflow.md
-│           └── sync_from_template.md
-└── prompts/
-    ├── .gitkeep
-    ├── harness/
-    │   ├── README.md
-    │   ├── audit_doc_drift.md
-    │   ├── generate_chat_llm_context.md
-    │   ├── reset_for_new_project.md
-    │   ├── sync_from_template.md
-    │   └── verify_task_result.md
-    └── tasks/
-        └── .gitkeep
+│   ├── harness/
+│   │   ├── README.md
+│   │   ├── QUICKSTART.md
+│   │   ├── PROJECT_CONTEXT.md
+│   │   ├── HANDOFF.md
+│   │   ├── DIRECTORY_MAP.md
+│   │   ├── CLARIFICATION_FORMAT.md
+│   │   ├── archive/
+│   │   │   └── .gitkeep
+│   │   └── flows/
+│   │       ├── .gitkeep
+│   │       ├── README.md
+│   │       ├── multi_user_workflow.md
+│   │       └── sync_from_template.md
+│   └── spikes/
+│       └── instagram_native_discovery.md
+├── prompts/
+│   ├── .gitkeep
+│   ├── harness/
+│   │   ├── README.md
+│   │   ├── audit_doc_drift.md
+│   │   ├── generate_chat_llm_context.md
+│   │   ├── reset_for_new_project.md
+│   │   ├── sync_from_template.md
+│   │   └── verify_task_result.md
+│   └── tasks/
+│       └── .gitkeep
+└── scripts/
+    ├── instagram_native_discovery_probe.py
+    └── test_instagram_native_discovery_probe.py
 ```
 
 ## Root files
@@ -67,6 +72,16 @@
 - `docs/harness/flows/multi_user_workflow.md`: 여러 개발자가 브랜치에서 하네스 문서를 갱신할 때의 병합 규칙을 설명하는 가이드 문서이다.
 - `docs/harness/flows/sync_from_template.md`: 하네스 템플릿의 변경을 프로젝트 복사본에 전파하는 흐름을 설명하는 가이드 문서이다.
 - `docs/harness/archive/`: 오래된 컨텍스트, 인수인계, 결정 기록을 보관할 수 있는 디렉토리이다.
+
+## docs/spikes/
+
+- `docs/spikes/`: production 구현 전에 외부 capability와 기술 가설을 재현 가능하게 검증하는 spike 문서를 저장한다.
+- `docs/spikes/instagram_native_discovery.md`: 공식 Meta Instagram API의 hashtag media author identity capability probe 범위, 실행법, 판정 기준을 설명한다.
+
+## scripts/
+
+- `scripts/instagram_native_discovery_probe.py`: Python standard library만으로 Instagram-native candidate discovery 가능성을 live Graph API에서 확인하는 독립 probe이다.
+- `scripts/test_instagram_native_discovery_probe.py`: 외부 network 없이 probe의 URL, redaction, classification, parsing, dedupe를 확인하는 synthetic unit test이다.
 
 ## prompts/
 
