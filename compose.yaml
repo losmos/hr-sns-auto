@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:18.4
+    container_name: hr-sns-auto-postgres
+    environment:
+      POSTGRES_DB: hr_sns_auto
+      POSTGRES_USER: hr_sns_auto
+      POSTGRES_PASSWORD: hr_sns_auto_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - hr_sns_auto_postgres_data:/var/lib/postgresql
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U hr_sns_auto -d hr_sns_auto
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  hr_sns_auto_postgres_data:

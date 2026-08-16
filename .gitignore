@@ -17,3 +17,7 @@ agent_outputs/llm_context/*
 .DS_Store
 .idea/
 .vscode/
+
+# Java / Maven
+target/
+*.class
