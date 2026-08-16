@@ -1,0 +1,18 @@
+# AI agent runtime outputs
+agent_outputs/run_logs/*
+!agent_outputs/run_logs/.gitkeep
+
+agent_outputs/llm_context/*
+!agent_outputs/llm_context/.gitkeep
+
+# clarification request Markdown files are intentionally trackable.
+
+# Common temporary files
+*.tmp
+*.temp
+*.log
+
+# OS/editor files
+.DS_Store
+.idea/
+.vscode/
