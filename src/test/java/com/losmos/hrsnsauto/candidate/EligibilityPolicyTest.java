@@ -52,10 +52,14 @@ class EligibilityPolicyTest {
 	}
 
 	@Test
-	void hairTransplantRelatedCandidateIsIneligible() {
+	void hairTransplantRelatedCandidateIsIneligibleRegardlessOfEvidenceFinding() {
 		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.RELATED);
+		List<CandidateEvidence> evidence = List.of(
+				strongProfessionEvidence(candidate),
+				identityEvidence(candidate),
+				strongHairEvidence(candidate, HairTransplantEvidenceFinding.INCONCLUSIVE));
 
-		EligibilityDecision decision = policy.assess(candidate, requiredEvidenceWithStrongHair(candidate));
+		EligibilityDecision decision = policy.assess(candidate, evidence);
 
 		assertThat(decision.status()).isEqualTo(EligibilityStatus.INELIGIBLE);
 		assertThat(decision.reason()).contains("모발이식 관련성이 확인");
@@ -162,6 +166,34 @@ class EligibilityPolicyTest {
 	}
 
 	@Test
+	void notRelatedWithStrongSupportsRelatedEvidenceRequiresReviewForConflict() {
+		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.NOT_RELATED);
+		List<CandidateEvidence> evidence = List.of(
+				strongProfessionEvidence(candidate),
+				identityEvidence(candidate),
+				strongHairEvidence(candidate, HairTransplantEvidenceFinding.SUPPORTS_RELATED));
+
+		EligibilityDecision decision = policy.assess(candidate, evidence);
+
+		assertThat(decision.status()).isEqualTo(EligibilityStatus.REVIEW_REQUIRED);
+		assertThat(decision.reason()).contains("모발이식 관련성을 지지하는 evidence", "NOT_RELATED 판정과 상충");
+	}
+
+	@Test
+	void notRelatedWithStrongInconclusiveEvidenceRequiresReview() {
+		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.NOT_RELATED);
+		List<CandidateEvidence> evidence = List.of(
+				strongProfessionEvidence(candidate),
+				identityEvidence(candidate),
+				strongHairEvidence(candidate, HairTransplantEvidenceFinding.INCONCLUSIVE));
+
+		EligibilityDecision decision = policy.assess(candidate, evidence);
+
+		assertThat(decision.status()).isEqualTo(EligibilityStatus.REVIEW_REQUIRED);
+		assertThat(decision.reason()).contains("모발이식 비관련성을 뒷받침하는 공개 근거");
+	}
+
+	@Test
 	void notRelatedWithTwoIndependentWeakHairSourcesIsEligible() {
 		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.NOT_RELATED);
 		List<CandidateEvidence> evidence = List.of(
@@ -173,6 +205,22 @@ class EligibilityPolicyTest {
 		EligibilityDecision decision = policy.assess(candidate, evidence);
 
 		assertThat(decision.status()).isEqualTo(EligibilityStatus.ELIGIBLE);
+	}
+
+	@Test
+	void notRelatedWithMixedWeakHairDirectionsRequiresReview() {
+		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.NOT_RELATED);
+		List<CandidateEvidence> evidence = List.of(
+				strongProfessionEvidence(candidate),
+				identityEvidence(candidate),
+				weakHairEvidence(candidate, "https://hospital.example/services"),
+				weakHairEvidence(candidate, "https://association.example/profile/a",
+						HairTransplantEvidenceFinding.SUPPORTS_RELATED));
+
+		EligibilityDecision decision = policy.assess(candidate, evidence);
+
+		assertThat(decision.status()).isEqualTo(EligibilityStatus.REVIEW_REQUIRED);
+		assertThat(decision.reason()).contains("NOT_RELATED 판정과 상충");
 	}
 
 	@Test
@@ -248,16 +296,32 @@ class EligibilityPolicyTest {
 	}
 
 	private CandidateEvidence strongHairEvidence(Candidate candidate) {
+		return strongHairEvidence(candidate, HairTransplantEvidenceFinding.SUPPORTS_NOT_RELATED);
+	}
+
+	private CandidateEvidence strongHairEvidence(Candidate candidate,
+			HairTransplantEvidenceFinding finding) {
 		return evidence(candidate, EvidenceType.HAIR_TRANSPLANT, EvidenceStrength.STRONG,
-				"https://hospital.example/services");
+				finding, "https://hospital.example/services");
 	}
 
 	private CandidateEvidence weakHairEvidence(Candidate candidate, String sourceUrl) {
-		return evidence(candidate, EvidenceType.HAIR_TRANSPLANT, EvidenceStrength.WEAK, sourceUrl);
+		return weakHairEvidence(candidate, sourceUrl, HairTransplantEvidenceFinding.SUPPORTS_NOT_RELATED);
+	}
+
+	private CandidateEvidence weakHairEvidence(Candidate candidate, String sourceUrl,
+			HairTransplantEvidenceFinding finding) {
+		return evidence(candidate, EvidenceType.HAIR_TRANSPLANT, EvidenceStrength.WEAK, finding, sourceUrl);
 	}
 
 	private CandidateEvidence evidence(Candidate candidate, EvidenceType type, EvidenceStrength strength,
 			String sourceUrl) {
-		return new CandidateEvidence(candidate, type, strength, sourceUrl, "공개 페이지에서 확인함", OBSERVED_AT);
+		return evidence(candidate, type, strength, null, sourceUrl);
+	}
+
+	private CandidateEvidence evidence(Candidate candidate, EvidenceType type, EvidenceStrength strength,
+			HairTransplantEvidenceFinding hairTransplantFinding, String sourceUrl) {
+		return new CandidateEvidence(candidate, type, strength, hairTransplantFinding, sourceUrl,
+				"공개 페이지에서 확인함", OBSERVED_AT);
 	}
 }

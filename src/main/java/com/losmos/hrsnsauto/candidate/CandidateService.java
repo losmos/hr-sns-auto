@@ -70,6 +70,7 @@ public class CandidateService {
 				candidate,
 				form.getType(),
 				form.getStrength(),
+				form.getHairTransplantFinding(),
 				form.getSourceUrl().trim(),
 				form.getSummary().trim(),
 				form.getObservedAt().atZone(OPERATOR_ZONE).toInstant());

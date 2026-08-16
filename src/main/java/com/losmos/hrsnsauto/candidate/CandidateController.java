@@ -42,6 +42,11 @@ public class CandidateController {
 		return EvidenceStrength.values();
 	}
 
+	@ModelAttribute("hairTransplantFindings")
+	HairTransplantEvidenceFinding[] hairTransplantFindings() {
+		return HairTransplantEvidenceFinding.values();
+	}
+
 	@GetMapping("/")
 	public String home() {
 		return "redirect:/candidates";
@@ -90,6 +95,7 @@ public class CandidateController {
 	public String addEvidence(@PathVariable Long candidateId,
 			@Valid @ModelAttribute("evidenceForm") EvidenceForm form,
 			BindingResult bindingResult, Model model, RedirectAttributes redirectAttributes) {
+		validateHairTransplantFinding(form, bindingResult);
 		if (bindingResult.hasErrors()) {
 			populateDetail(candidateId, model);
 			return "candidates/detail";
@@ -110,5 +116,17 @@ public class CandidateController {
 	private void populateDetail(Long candidateId, Model model) {
 		model.addAttribute("candidate", candidateService.getCandidate(candidateId));
 		model.addAttribute("evidenceList", candidateService.getEvidence(candidateId));
+	}
+
+	private void validateHairTransplantFinding(EvidenceForm form, BindingResult bindingResult) {
+		if (form.getType() == EvidenceType.HAIR_TRANSPLANT && form.getHairTransplantFinding() == null) {
+			bindingResult.rejectValue("hairTransplantFinding", "required",
+					"HAIR_TRANSPLANT evidence는 finding을 선택한다");
+		}
+		else if (form.getType() != null && form.getType() != EvidenceType.HAIR_TRANSPLANT
+				&& form.getHairTransplantFinding() != null) {
+			bindingResult.rejectValue("hairTransplantFinding", "notAllowed",
+					"HAIR_TRANSPLANT 이외 evidence에는 hair finding을 지정하지 않는다");
+		}
 	}
 }

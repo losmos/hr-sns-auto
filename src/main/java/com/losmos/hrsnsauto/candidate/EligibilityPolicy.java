@@ -68,14 +68,27 @@ public class EligibilityPolicy {
 			reasons.add("모발이식 관련성이 확인되지 않음");
 		}
 		if (candidate.getHairTransplantRelation() == HairTransplantRelation.NOT_RELATED) {
+			boolean hasConflictingHairEvidence = evidence.stream()
+					.filter(Objects::nonNull)
+					.anyMatch(item -> item.getType() == EvidenceType.HAIR_TRANSPLANT
+							&& item.getHairTransplantFinding()
+									== HairTransplantEvidenceFinding.SUPPORTS_RELATED);
+			if (hasConflictingHairEvidence) {
+				reasons.add("모발이식 관련성을 지지하는 evidence가 있어 NOT_RELATED 판정과 상충함");
+			}
+
 			boolean hasStrongHairEvidence = evidence.stream()
 					.filter(Objects::nonNull)
 					.anyMatch(item -> item.getType() == EvidenceType.HAIR_TRANSPLANT
+							&& item.getHairTransplantFinding()
+									== HairTransplantEvidenceFinding.SUPPORTS_NOT_RELATED
 							&& item.getStrength() == EvidenceStrength.STRONG
 							&& hasSourceUrl(item));
 			long independentWeakHairSources = evidence.stream()
 					.filter(Objects::nonNull)
 					.filter(item -> item.getType() == EvidenceType.HAIR_TRANSPLANT)
+					.filter(item -> item.getHairTransplantFinding()
+							== HairTransplantEvidenceFinding.SUPPORTS_NOT_RELATED)
 					.filter(item -> item.getStrength() == EvidenceStrength.WEAK)
 					.filter(this::hasSourceUrl)
 					.map(item -> item.getSourceUrl().trim())

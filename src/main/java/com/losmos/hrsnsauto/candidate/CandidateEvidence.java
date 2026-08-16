@@ -13,6 +13,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 
 @Entity
@@ -35,6 +36,10 @@ public class CandidateEvidence {
 	@Column(nullable = false, length = 16)
 	private EvidenceStrength strength;
 
+	@Enumerated(EnumType.STRING)
+	@Column(name = "hair_transplant_finding", length = 32)
+	private HairTransplantEvidenceFinding hairTransplantFinding;
+
 	@Column(name = "source_url", nullable = false, length = 2048)
 	private String sourceUrl;
 
@@ -50,11 +55,13 @@ public class CandidateEvidence {
 	protected CandidateEvidence() {
 	}
 
-	public CandidateEvidence(Candidate candidate, EvidenceType type, EvidenceStrength strength, String sourceUrl,
-			String summary, Instant observedAt) {
+	public CandidateEvidence(Candidate candidate, EvidenceType type, EvidenceStrength strength,
+			HairTransplantEvidenceFinding hairTransplantFinding, String sourceUrl, String summary, Instant observedAt) {
+		validateHairTransplantFinding(type, hairTransplantFinding);
 		this.candidate = candidate;
 		this.type = type;
 		this.strength = strength;
+		this.hairTransplantFinding = hairTransplantFinding;
 		this.sourceUrl = sourceUrl;
 		this.summary = summary;
 		this.observedAt = observedAt;
@@ -62,7 +69,23 @@ public class CandidateEvidence {
 
 	@PrePersist
 	void recordCreationTime() {
+		validateHairTransplantFinding(type, hairTransplantFinding);
 		this.createdAt = Instant.now();
+	}
+
+	@PreUpdate
+	void enforceHairTransplantFindingInvariant() {
+		validateHairTransplantFinding(type, hairTransplantFinding);
+	}
+
+	private static void validateHairTransplantFinding(EvidenceType type,
+			HairTransplantEvidenceFinding hairTransplantFinding) {
+		if (type == EvidenceType.HAIR_TRANSPLANT && hairTransplantFinding == null) {
+			throw new IllegalArgumentException("HAIR_TRANSPLANT evidence는 finding이 필수이다");
+		}
+		if (type != EvidenceType.HAIR_TRANSPLANT && hairTransplantFinding != null) {
+			throw new IllegalArgumentException("HAIR_TRANSPLANT 이외 evidence에는 hair finding을 지정하지 않는다");
+		}
 	}
 
 	public Long getId() {
@@ -79,6 +102,10 @@ public class CandidateEvidence {
 
 	public EvidenceStrength getStrength() {
 		return strength;
+	}
+
+	public HairTransplantEvidenceFinding getHairTransplantFinding() {
+		return hairTransplantFinding;
 	}
 
 	public String getSourceUrl() {

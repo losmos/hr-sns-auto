@@ -60,8 +60,9 @@
             </select>
             <span class="field-error" th:if="${#fields.hasErrors('hairTransplantRelation')}"
                   th:errors="*{hairTransplantRelation}"></span>
-            <small>NOT_RELATED 판정을 ELIGIBLE로 사용하려면 모발이식 비관련성을 뒷받침하는 공개 evidence가
-                STRONG 1개 또는 서로 다른 URL의 WEAK 2개 필요하다.</small>
+            <small>NOT_RELATED 판정을 ELIGIBLE로 사용하려면 관련 없음 방향의 HAIR_TRANSPLANT evidence가
+                STRONG 1개 또는 서로 다른 URL의 WEAK 2개 필요하다. 관련 있음 evidence가 있으면
+                NOT_RELATED 판정과 상충하므로 REVIEW_REQUIRED이다.</small>
         </label>
 
         <div class="actions">

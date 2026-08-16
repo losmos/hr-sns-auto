@@ -13,6 +13,7 @@ import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -52,13 +53,17 @@ class CandidateServiceTest {
 		Candidate reassessed = candidateService.addEvidence(1L, form);
 
 		assertThat(reassessed.getEligibilityStatus()).isEqualTo(EligibilityStatus.ELIGIBLE);
-		verify(evidenceRepository).saveAndFlush(any(CandidateEvidence.class));
+		ArgumentCaptor<CandidateEvidence> savedEvidence = ArgumentCaptor.forClass(CandidateEvidence.class);
+		verify(evidenceRepository).saveAndFlush(savedEvidence.capture());
+		assertThat(savedEvidence.getValue().getHairTransplantFinding())
+				.isEqualTo(HairTransplantEvidenceFinding.SUPPORTS_NOT_RELATED);
 	}
 
 	private EvidenceForm validEvidenceForm() {
 		EvidenceForm form = new EvidenceForm();
 		form.setType(EvidenceType.HAIR_TRANSPLANT);
 		form.setStrength(EvidenceStrength.STRONG);
+		form.setHairTransplantFinding(HairTransplantEvidenceFinding.SUPPORTS_NOT_RELATED);
 		form.setSourceUrl("https://hospital.example/services");
 		form.setSummary("공개 진료 안내에서 모발이식 비관련성을 확인함");
 		form.setObservedAt(LocalDateTime.of(2026, 8, 17, 9, 0));
@@ -68,6 +73,9 @@ class CandidateServiceTest {
 	private CandidateEvidence evidence(Candidate candidate, EvidenceType type, String sourceUrl) {
 		return new CandidateEvidence(candidate, type,
 				type == EvidenceType.IDENTITY ? EvidenceStrength.WEAK : EvidenceStrength.STRONG,
+				type == EvidenceType.HAIR_TRANSPLANT
+						? HairTransplantEvidenceFinding.SUPPORTS_NOT_RELATED
+						: null,
 				sourceUrl, "공개 근거", Instant.parse("2026-08-17T00:00:00Z"));
 	}
 }

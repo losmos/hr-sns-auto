@@ -18,6 +18,9 @@ public class EvidenceForm {
 	@NotNull(message = "evidence strength를 선택한다")
 	private EvidenceStrength strength = EvidenceStrength.STRONG;
 
+	// HAIR_TRANSPLANT을 선택해도 비관련 방향이 자동 입력되지 않게 안전한 null 기본값을 유지한다.
+	private HairTransplantEvidenceFinding hairTransplantFinding;
+
 	@NotBlank(message = "공개 근거 URL을 입력한다")
 	@Size(max = 2048, message = "공개 근거 URL은 2,048자 이내로 입력한다")
 	@Pattern(regexp = "https?://[^\\s]+", message = "공개 근거 URL은 http:// 또는 https://로 입력한다")
@@ -45,6 +48,14 @@ public class EvidenceForm {
 
 	public void setStrength(EvidenceStrength strength) {
 		this.strength = strength;
+	}
+
+	public HairTransplantEvidenceFinding getHairTransplantFinding() {
+		return hairTransplantFinding;
+	}
+
+	public void setHairTransplantFinding(HairTransplantEvidenceFinding hairTransplantFinding) {
+		this.hairTransplantFinding = hairTransplantFinding;
 	}
 
 	public String getSourceUrl() {

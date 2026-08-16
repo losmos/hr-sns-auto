@@ -55,6 +55,11 @@
                     <strong th:text="|${evidence.type} · ${evidence.strength}|"></strong>
                     <span class="muted" th:text="${evidence.observedAt}"></span>
                 </div>
+                <p th:if="${evidence.type.name() == 'HAIR_TRANSPLANT'}">
+                    모발이식 evidence 판단:
+                    <strong th:text="|${evidence.hairTransplantFinding.label} (${evidence.hairTransplantFinding})|"></strong>
+                    <span class="muted" th:text="${evidence.hairTransplantFinding.description}"></span>
+                </p>
                 <p th:text="${evidence.summary}"></p>
                 <a th:href="${evidence.sourceUrl}" th:text="${evidence.sourceUrl}"
                    target="_blank" rel="noopener noreferrer"></a>
@@ -66,7 +71,8 @@
     <section class="panel">
         <h2>Evidence 추가</h2>
         <p class="muted">URL 내용은 자동으로 가져오지 않는다. 운영자가 공개 근거를 직접 확인해 기록한다.
-            NOT_RELATED 판정에는 HAIR_TRANSPLANT evidence가 STRONG 1개 또는 서로 다른 URL의 WEAK 2개 필요하다.</p>
+            NOT_RELATED 판정에는 관련 없음 근거인 HAIR_TRANSPLANT evidence가 STRONG 1개 또는 서로 다른 URL의
+            WEAK 2개 필요하다. 관련 있음 근거와 결론 불충분 evidence는 통과 근거로 계산하지 않는다.</p>
         <form class="form-grid" th:action="@{/candidates/{id}/evidence(id=${candidate.id})}"
               th:object="${evidenceForm}" method="post">
             <label>
@@ -84,6 +90,18 @@
                 </select>
                 <span class="field-error" th:if="${#fields.hasErrors('strength')}"
                       th:errors="*{strength}"></span>
+            </label>
+
+            <label class="full-width">
+                모발이식 evidence 판단
+                <select th:field="*{hairTransplantFinding}">
+                    <option value="">선택 안 함</option>
+                    <option th:each="item : ${hairTransplantFindings}" th:value="${item}"
+                            th:text="|${item.label} — ${item.description}|"></option>
+                </select>
+                <span class="field-error" th:if="${#fields.hasErrors('hairTransplantFinding')}"
+                      th:errors="*{hairTransplantFinding}"></span>
+                <small>HAIR_TRANSPLANT type에서만 선택한다. 관련 없음 근거를 자동 선택하지 않는다.</small>
             </label>
 
             <label class="full-width">
