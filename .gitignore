@@ -11,6 +11,7 @@ agent_outputs/llm_context/*
 *.tmp
 *.temp
 *.log
+*.swp
 
 # OS/editor files
 .DS_Store
