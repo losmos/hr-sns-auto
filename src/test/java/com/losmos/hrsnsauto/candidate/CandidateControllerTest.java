@@ -41,7 +41,8 @@ class CandidateControllerTest {
 		mockMvc.perform(get("/candidates/new"))
 				.andExpect(status().isOk())
 				.andExpect(view().name("candidates/form"))
-				.andExpect(content().string(containsString("신규 후보 등록")));
+				.andExpect(content().string(containsString("신규 후보 등록")))
+				.andExpect(content().string(containsString("서로 다른 URL의 WEAK 2개")));
 	}
 
 	@Test
@@ -55,7 +56,8 @@ class CandidateControllerTest {
 				.andExpect(status().isOk())
 				.andExpect(view().name("candidates/detail"))
 				.andExpect(content().string(containsString("REVIEW_REQUIRED")))
-				.andExpect(content().string(containsString("Evidence 추가")));
+				.andExpect(content().string(containsString("Evidence 추가")))
+				.andExpect(content().string(containsString("HAIR_TRANSPLANT evidence")));
 	}
 
 	@Test

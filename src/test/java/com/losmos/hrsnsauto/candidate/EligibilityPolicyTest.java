@@ -14,10 +14,10 @@ class EligibilityPolicyTest {
 	private final EligibilityPolicy policy = new EligibilityPolicy();
 
 	@Test
-	void doctorWithRequiredEvidenceIsEligible() {
+	void notRelatedDoctorWithStrongHairEvidenceIsEligible() {
 		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.NOT_RELATED);
 
-		EligibilityDecision decision = policy.assess(candidate, requiredStrongEvidence(candidate));
+		EligibilityDecision decision = policy.assess(candidate, requiredEvidenceWithStrongHair(candidate));
 
 		assertThat(decision.status()).isEqualTo(EligibilityStatus.ELIGIBLE);
 	}
@@ -26,7 +26,7 @@ class EligibilityPolicyTest {
 	void pharmacistWithRequiredEvidenceIsEligible() {
 		Candidate candidate = candidate(Profession.PHARMACIST, 8_500, HairTransplantRelation.NOT_RELATED);
 
-		EligibilityDecision decision = policy.assess(candidate, requiredStrongEvidence(candidate));
+		EligibilityDecision decision = policy.assess(candidate, requiredEvidenceWithStrongHair(candidate));
 
 		assertThat(decision.status()).isEqualTo(EligibilityStatus.ELIGIBLE);
 	}
@@ -36,7 +36,7 @@ class EligibilityPolicyTest {
 		Candidate candidate = candidate(Profession.KOREAN_MEDICINE, 5_000,
 				HairTransplantRelation.NOT_RELATED);
 
-		EligibilityDecision decision = policy.assess(candidate, requiredStrongEvidence(candidate));
+		EligibilityDecision decision = policy.assess(candidate, requiredEvidenceWithStrongHair(candidate));
 
 		assertThat(decision.status()).isEqualTo(EligibilityStatus.INELIGIBLE);
 		assertThat(decision.reason()).contains("한의사");
@@ -46,7 +46,7 @@ class EligibilityPolicyTest {
 	void otherProfessionIsIneligible() {
 		Candidate candidate = candidate(Profession.OTHER, 5_000, HairTransplantRelation.NOT_RELATED);
 
-		EligibilityDecision decision = policy.assess(candidate, requiredStrongEvidence(candidate));
+		EligibilityDecision decision = policy.assess(candidate, requiredEvidenceWithStrongHair(candidate));
 
 		assertThat(decision.status()).isEqualTo(EligibilityStatus.INELIGIBLE);
 	}
@@ -55,7 +55,7 @@ class EligibilityPolicyTest {
 	void hairTransplantRelatedCandidateIsIneligible() {
 		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.RELATED);
 
-		EligibilityDecision decision = policy.assess(candidate, requiredStrongEvidence(candidate));
+		EligibilityDecision decision = policy.assess(candidate, requiredEvidenceWithStrongHair(candidate));
 
 		assertThat(decision.status()).isEqualTo(EligibilityStatus.INELIGIBLE);
 		assertThat(decision.reason()).contains("모발이식 관련성이 확인");
@@ -65,7 +65,7 @@ class EligibilityPolicyTest {
 	void unknownHairTransplantRelationRequiresReview() {
 		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.UNKNOWN);
 
-		EligibilityDecision decision = policy.assess(candidate, requiredStrongEvidence(candidate));
+		EligibilityDecision decision = policy.assess(candidate, requiredEvidenceWithStrongHair(candidate));
 
 		assertThat(decision.status()).isEqualTo(EligibilityStatus.REVIEW_REQUIRED);
 		assertThat(decision.reason()).contains("모발이식 관련성이 확인되지 않음");
@@ -75,7 +75,7 @@ class EligibilityPolicyTest {
 	void tenThousandFollowersIsIneligible() {
 		Candidate candidate = candidate(Profession.DOCTOR, 10_000, HairTransplantRelation.NOT_RELATED);
 
-		EligibilityDecision decision = policy.assess(candidate, requiredStrongEvidence(candidate));
+		EligibilityDecision decision = policy.assess(candidate, requiredEvidenceWithStrongHair(candidate));
 
 		assertThat(decision.status()).isEqualTo(EligibilityStatus.INELIGIBLE);
 	}
@@ -84,7 +84,7 @@ class EligibilityPolicyTest {
 	void nineThousandNineHundredNinetyNineFollowersCanBeEligible() {
 		Candidate candidate = candidate(Profession.DOCTOR, 9_999, HairTransplantRelation.NOT_RELATED);
 
-		EligibilityDecision decision = policy.assess(candidate, requiredStrongEvidence(candidate));
+		EligibilityDecision decision = policy.assess(candidate, requiredEvidenceWithStrongHair(candidate));
 
 		assertThat(decision.status()).isEqualTo(EligibilityStatus.ELIGIBLE);
 	}
@@ -93,7 +93,7 @@ class EligibilityPolicyTest {
 	void missingFollowerCountRequiresReview() {
 		Candidate candidate = candidate(Profession.DOCTOR, null, HairTransplantRelation.NOT_RELATED);
 
-		EligibilityDecision decision = policy.assess(candidate, requiredStrongEvidence(candidate));
+		EligibilityDecision decision = policy.assess(candidate, requiredEvidenceWithStrongHair(candidate));
 
 		assertThat(decision.status()).isEqualTo(EligibilityStatus.REVIEW_REQUIRED);
 		assertThat(decision.reason()).contains("follower 수가 확인되지 않음");
@@ -102,7 +102,7 @@ class EligibilityPolicyTest {
 	@Test
 	void missingStrongProfessionEvidenceRequiresReview() {
 		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.NOT_RELATED);
-		List<CandidateEvidence> evidence = List.of(identityEvidence(candidate));
+		List<CandidateEvidence> evidence = List.of(identityEvidence(candidate), strongHairEvidence(candidate));
 
 		EligibilityDecision decision = policy.assess(candidate, evidence);
 
@@ -116,7 +116,8 @@ class EligibilityPolicyTest {
 		List<CandidateEvidence> evidence = List.of(
 				weakProfessionEvidence(candidate, "https://hospital.example/doctors/a"),
 				weakProfessionEvidence(candidate, "https://association.example/members/a"),
-				identityEvidence(candidate));
+				identityEvidence(candidate),
+				strongHairEvidence(candidate));
 
 		EligibilityDecision decision = policy.assess(candidate, evidence);
 
@@ -129,7 +130,8 @@ class EligibilityPolicyTest {
 		List<CandidateEvidence> evidence = List.of(
 				weakProfessionEvidence(candidate, "https://hospital.example/doctors/a"),
 				weakProfessionEvidence(candidate, "https://hospital.example/doctors/a"),
-				identityEvidence(candidate));
+				identityEvidence(candidate),
+				strongHairEvidence(candidate));
 
 		EligibilityDecision decision = policy.assess(candidate, evidence);
 
@@ -139,7 +141,9 @@ class EligibilityPolicyTest {
 	@Test
 	void missingIdentityEvidenceRequiresReview() {
 		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.NOT_RELATED);
-		List<CandidateEvidence> evidence = List.of(strongProfessionEvidence(candidate));
+		List<CandidateEvidence> evidence = List.of(
+				strongProfessionEvidence(candidate),
+				strongHairEvidence(candidate));
 
 		EligibilityDecision decision = policy.assess(candidate, evidence);
 
@@ -148,15 +152,68 @@ class EligibilityPolicyTest {
 	}
 
 	@Test
-	void hardExcludeTakesPrecedenceOverMissingEvidenceReview() {
-		Candidate candidate = candidate(Profession.DOCTOR, 12_000, HairTransplantRelation.UNKNOWN);
+	void notRelatedWithoutHairEvidenceRequiresReview() {
+		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.NOT_RELATED);
 
-		EligibilityDecision decision = policy.assess(candidate, List.of());
+		EligibilityDecision decision = policy.assess(candidate, requiredProfessionAndIdentityEvidence(candidate));
+
+		assertThat(decision.status()).isEqualTo(EligibilityStatus.REVIEW_REQUIRED);
+		assertThat(decision.reason()).contains("모발이식 비관련성을 뒷받침하는 공개 근거가 최소 기준을 충족하지 못함");
+	}
+
+	@Test
+	void notRelatedWithTwoIndependentWeakHairSourcesIsEligible() {
+		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.NOT_RELATED);
+		List<CandidateEvidence> evidence = List.of(
+				strongProfessionEvidence(candidate),
+				identityEvidence(candidate),
+				weakHairEvidence(candidate, "https://hospital.example/services"),
+				weakHairEvidence(candidate, "https://association.example/profile/a"));
+
+		EligibilityDecision decision = policy.assess(candidate, evidence);
+
+		assertThat(decision.status()).isEqualTo(EligibilityStatus.ELIGIBLE);
+	}
+
+	@Test
+	void notRelatedWithTwoWeakHairEntriesFromSameSourceRequiresReview() {
+		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.NOT_RELATED);
+		List<CandidateEvidence> evidence = List.of(
+				strongProfessionEvidence(candidate),
+				identityEvidence(candidate),
+				weakHairEvidence(candidate, "https://hospital.example/services"),
+				weakHairEvidence(candidate, "https://hospital.example/services"));
+
+		EligibilityDecision decision = policy.assess(candidate, evidence);
+
+		assertThat(decision.status()).isEqualTo(EligibilityStatus.REVIEW_REQUIRED);
+		assertThat(decision.reason()).contains("모발이식 비관련성을 뒷받침하는 공개 근거");
+	}
+
+	@Test
+	void notRelatedWithOneWeakHairEvidenceRequiresReview() {
+		Candidate candidate = candidate(Profession.DOCTOR, 5_000, HairTransplantRelation.NOT_RELATED);
+		List<CandidateEvidence> evidence = List.of(
+				strongProfessionEvidence(candidate),
+				identityEvidence(candidate),
+				weakHairEvidence(candidate, "https://hospital.example/services"));
+
+		EligibilityDecision decision = policy.assess(candidate, evidence);
+
+		assertThat(decision.status()).isEqualTo(EligibilityStatus.REVIEW_REQUIRED);
+		assertThat(decision.reason()).contains("모발이식 비관련성을 뒷받침하는 공개 근거");
+	}
+
+	@Test
+	void followerHardExcludeTakesPrecedenceOverMissingHairEvidenceReview() {
+		Candidate candidate = candidate(Profession.DOCTOR, 12_000, HairTransplantRelation.NOT_RELATED);
+
+		EligibilityDecision decision = policy.assess(candidate, requiredProfessionAndIdentityEvidence(candidate));
 
 		assertThat(decision.status()).isEqualTo(EligibilityStatus.INELIGIBLE);
 		assertThat(decision.reason())
 				.contains("follower 10,000 이상")
-				.doesNotContain("identity evidence");
+				.doesNotContain("모발이식 비관련성을 뒷받침하는 공개 근거");
 	}
 
 	private Candidate candidate(Profession profession, Integer followerCount,
@@ -165,7 +222,14 @@ class EligibilityPolicyTest {
 				hairTransplantRelation);
 	}
 
-	private List<CandidateEvidence> requiredStrongEvidence(Candidate candidate) {
+	private List<CandidateEvidence> requiredEvidenceWithStrongHair(Candidate candidate) {
+		return List.of(
+				strongProfessionEvidence(candidate),
+				identityEvidence(candidate),
+				strongHairEvidence(candidate));
+	}
+
+	private List<CandidateEvidence> requiredProfessionAndIdentityEvidence(Candidate candidate) {
 		return List.of(strongProfessionEvidence(candidate), identityEvidence(candidate));
 	}
 
@@ -181,6 +245,15 @@ class EligibilityPolicyTest {
 	private CandidateEvidence identityEvidence(Candidate candidate) {
 		return evidence(candidate, EvidenceType.IDENTITY, EvidenceStrength.WEAK,
 				"https://hospital.example/doctors/a/instagram");
+	}
+
+	private CandidateEvidence strongHairEvidence(Candidate candidate) {
+		return evidence(candidate, EvidenceType.HAIR_TRANSPLANT, EvidenceStrength.STRONG,
+				"https://hospital.example/services");
+	}
+
+	private CandidateEvidence weakHairEvidence(Candidate candidate, String sourceUrl) {
+		return evidence(candidate, EvidenceType.HAIR_TRANSPLANT, EvidenceStrength.WEAK, sourceUrl);
 	}
 
 	private CandidateEvidence evidence(Candidate candidate, EvidenceType type, EvidenceStrength strength,

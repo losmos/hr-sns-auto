@@ -67,6 +67,25 @@ public class EligibilityPolicy {
 				|| candidate.getHairTransplantRelation() == HairTransplantRelation.UNKNOWN) {
 			reasons.add("모발이식 관련성이 확인되지 않음");
 		}
+		if (candidate.getHairTransplantRelation() == HairTransplantRelation.NOT_RELATED) {
+			boolean hasStrongHairEvidence = evidence.stream()
+					.filter(Objects::nonNull)
+					.anyMatch(item -> item.getType() == EvidenceType.HAIR_TRANSPLANT
+							&& item.getStrength() == EvidenceStrength.STRONG
+							&& hasSourceUrl(item));
+			long independentWeakHairSources = evidence.stream()
+					.filter(Objects::nonNull)
+					.filter(item -> item.getType() == EvidenceType.HAIR_TRANSPLANT)
+					.filter(item -> item.getStrength() == EvidenceStrength.WEAK)
+					.filter(this::hasSourceUrl)
+					.map(item -> item.getSourceUrl().trim())
+					.distinct()
+					.count();
+
+			if (!hasStrongHairEvidence && independentWeakHairSources < 2) {
+				reasons.add("모발이식 비관련성을 뒷받침하는 공개 근거가 최소 기준을 충족하지 못함");
+			}
+		}
 
 		boolean hasStrongProfessionEvidence = evidence.stream()
 				.filter(Objects::nonNull)

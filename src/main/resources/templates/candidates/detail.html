@@ -65,7 +65,8 @@
 
     <section class="panel">
         <h2>Evidence 추가</h2>
-        <p class="muted">URL 내용은 자동으로 가져오지 않는다. 운영자가 공개 근거를 직접 확인해 기록한다.</p>
+        <p class="muted">URL 내용은 자동으로 가져오지 않는다. 운영자가 공개 근거를 직접 확인해 기록한다.
+            NOT_RELATED 판정에는 HAIR_TRANSPLANT evidence가 STRONG 1개 또는 서로 다른 URL의 WEAK 2개 필요하다.</p>
         <form class="form-grid" th:action="@{/candidates/{id}/evidence(id=${candidate.id})}"
               th:object="${evidenceForm}" method="post">
             <label>

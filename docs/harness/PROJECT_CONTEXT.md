@@ -67,7 +67,7 @@
 - `DEC-20260817-daily-eligible-candidate-cap`: 일일 목표는 필수 검증을 모두 통과한 운영자 검토 가능 신규 `ELIGIBLE` 후보 최대 15명이다. 15명 미달을 허용하며 숫자를 위해 기준을 낮추지 않는다.
 - `DEC-20260817-initial-target-market`: 초기 대상은 대한민국의 한국어 Instagram 계정이며 모발이식 분야를 제외한 의사·약사를 폭넓게 다룬다. 초기 진료과 quota는 두지 않는다.
 - `DEC-20260817-profession-identity-evidence`: Instagram bio·category만으로 의사·약사를 확정하지 않는다. 강한 공개 근거 1개와 Instagram identity 일치 근거를 요구하고, 강한 단일 근거가 없으면 독립적인 공개 source 2개 이상을 검토한다. 부족·상충 근거는 `REVIEW_REQUIRED`이다.
-- `DEC-20260817-hair-ambiguity-review`: 모발이식 관련성을 충분히 확인할 수 없는 후보는 `ELIGIBLE`로 자동 통과시키지 않고 `REVIEW_REQUIRED`로 분류한다.
+- `DEC-20260817-hair-ambiguity-review`: `NOT_RELATED` 값만으로 모발이식 gate를 통과시키지 않는다. 유효한 source URL이 있는 `HAIR_TRANSPLANT` 공개 evidence가 strong 1개 또는 서로 다른 URL의 weak 2개 이상이어야 하며, 기준 미충족이나 `UNKNOWN`은 `REVIEW_REQUIRED`, `RELATED`는 hard exclude로 분류한다.
 - `DEC-20260817-recent-activity-ranking`: 최근 30일 활동을 우선하고 30일 초과만으로 제외하지 않는다. 90일 초과는 낮은 우선순위 또는 `REVIEW_REQUIRED`로 취급할 수 있으며 최근 활동은 기본적으로 ranking 요소이지 hard exclude가 아니다.
 - `DEC-20260817-first-release-mode`: 첫 release는 `APPROVAL_REQUIRED + MANUAL_EXECUTION`이다. 시스템은 후보·evidence·eligibility·content 분석·comment/DM draft·독립 승인·결과 기록을 담당하고 운영자가 Instagram action을 직접 수행한다.
 - `DEC-20260817-outreach-sequencing`: 후보당 하루 신규 outbound action은 최대 하나이다. 실제 content interaction을 먼저 검토하고 DM은 다른 시점의 별도 action·별도 approval로 다룬다.

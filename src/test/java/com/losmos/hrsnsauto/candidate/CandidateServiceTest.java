@@ -40,11 +40,13 @@ class CandidateServiceTest {
 				"https://hospital.example/doctors/a");
 		CandidateEvidence identityEvidence = evidence(candidate, EvidenceType.IDENTITY,
 				"https://hospital.example/doctors/a/instagram");
+		CandidateEvidence hairEvidence = evidence(candidate, EvidenceType.HAIR_TRANSPLANT,
+				"https://hospital.example/services");
 		EvidenceForm form = validEvidenceForm();
 
 		when(candidateRepository.findById(1L)).thenReturn(Optional.of(candidate));
 		when(evidenceRepository.findAllByCandidateIdOrderByObservedAtDescIdDesc(1L))
-				.thenReturn(List.of(professionEvidence, identityEvidence));
+				.thenReturn(List.of(professionEvidence, identityEvidence, hairEvidence));
 		when(candidateRepository.save(any(Candidate.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
 		Candidate reassessed = candidateService.addEvidence(1L, form);
@@ -55,17 +57,17 @@ class CandidateServiceTest {
 
 	private EvidenceForm validEvidenceForm() {
 		EvidenceForm form = new EvidenceForm();
-		form.setType(EvidenceType.IDENTITY);
-		form.setStrength(EvidenceStrength.WEAK);
-		form.setSourceUrl("https://hospital.example/doctors/a/instagram");
-		form.setSummary("병원 페이지가 Instagram 계정을 연결함");
+		form.setType(EvidenceType.HAIR_TRANSPLANT);
+		form.setStrength(EvidenceStrength.STRONG);
+		form.setSourceUrl("https://hospital.example/services");
+		form.setSummary("공개 진료 안내에서 모발이식 비관련성을 확인함");
 		form.setObservedAt(LocalDateTime.of(2026, 8, 17, 9, 0));
 		return form;
 	}
 
 	private CandidateEvidence evidence(Candidate candidate, EvidenceType type, String sourceUrl) {
 		return new CandidateEvidence(candidate, type,
-				type == EvidenceType.PROFESSION ? EvidenceStrength.STRONG : EvidenceStrength.WEAK,
+				type == EvidenceType.IDENTITY ? EvidenceStrength.WEAK : EvidenceStrength.STRONG,
 				sourceUrl, "공개 근거", Instant.parse("2026-08-17T00:00:00Z"));
 	}
 }
