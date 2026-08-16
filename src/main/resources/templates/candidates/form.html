@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>신규 후보 등록 | hr-sns-auto</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<main class="container narrow">
+    <nav><a th:href="@{/candidates}">← 후보 목록</a></nav>
+    <header>
+        <p class="eyebrow">Candidate</p>
+        <h1>신규 후보 등록</h1>
+        <p class="muted">공개 정보에서 직접 확인한 기본 정보만 입력한다. @ 기호는 username에서 제외한다.</p>
+    </header>
+
+    <form class="panel form-grid" th:action="@{/candidates}" th:object="${candidateForm}" method="post">
+        <label>
+            Instagram username
+            <input type="text" th:field="*{instagramUsername}" placeholder="doctor_a" autocomplete="off">
+            <span class="field-error" th:if="${#fields.hasErrors('instagramUsername')}"
+                  th:errors="*{instagramUsername}"></span>
+        </label>
+
+        <label>
+            표시 이름
+            <input type="text" th:field="*{displayName}" placeholder="홍길동">
+            <span class="field-error" th:if="${#fields.hasErrors('displayName')}"
+                  th:errors="*{displayName}"></span>
+        </label>
+
+        <label>
+            Profession
+            <select th:field="*{profession}">
+                <option th:each="item : ${professions}" th:value="${item}" th:text="${item}"></option>
+            </select>
+            <span class="field-error" th:if="${#fields.hasErrors('profession')}"
+                  th:errors="*{profession}"></span>
+        </label>
+
+        <label>
+            전문 분야
+            <input type="text" th:field="*{specialty}" placeholder="내과 (선택)">
+            <span class="field-error" th:if="${#fields.hasErrors('specialty')}"
+                  th:errors="*{specialty}"></span>
+        </label>
+
+        <label>
+            Follower 수
+            <input type="number" min="0" th:field="*{followerCount}" placeholder="미확인이면 비워 둔다">
+            <span class="field-error" th:if="${#fields.hasErrors('followerCount')}"
+                  th:errors="*{followerCount}"></span>
+        </label>
+
+        <label>
+            모발이식 관련성
+            <select th:field="*{hairTransplantRelation}">
+                <option th:each="item : ${hairRelations}" th:value="${item}" th:text="${item}"></option>
+            </select>
+            <span class="field-error" th:if="${#fields.hasErrors('hairTransplantRelation')}"
+                  th:errors="*{hairTransplantRelation}"></span>
+            <small>근거로 다른 의료 섹터임을 확인한 경우에만 NOT_RELATED를 선택한다.</small>
+        </label>
+
+        <div class="actions">
+            <button type="submit">후보 등록</button>
+            <a class="button secondary" th:href="@{/candidates}">취소</a>
+        </div>
+    </form>
+</main>
+</body>
+</html>

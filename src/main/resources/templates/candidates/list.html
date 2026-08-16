@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>후보 목록 | hr-sns-auto</title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<main class="container">
+    <header class="page-header">
+        <div>
+            <p class="eyebrow">Candidate → Evidence → Eligibility</p>
+            <h1>후보 목록</h1>
+        </div>
+        <a class="button" th:href="@{/candidates/new}">신규 후보 등록</a>
+    </header>
+
+    <p class="flash" th:if="${message}" th:text="${message}"></p>
+
+    <section class="panel">
+        <table>
+            <thead>
+            <tr>
+                <th>Instagram</th>
+                <th>표시 이름</th>
+                <th>Profession</th>
+                <th>Follower</th>
+                <th>Eligibility</th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            <tr th:each="candidate : ${candidates}">
+                <td th:text="|@${candidate.instagramUsername}|"></td>
+                <td th:text="${candidate.displayName}"></td>
+                <td th:text="${candidate.profession}"></td>
+                <td th:text="${candidate.followerCount == null ? '미확인' : #numbers.formatInteger(candidate.followerCount, 1, 'COMMA')}"></td>
+                <td>
+                    <span class="status"
+                          th:attr="data-status=${candidate.eligibilityStatus}"
+                          th:text="${candidate.eligibilityStatus}"></span>
+                </td>
+                <td><a th:href="@{/candidates/{id}(id=${candidate.id})}">상세 보기</a></td>
+            </tr>
+            <tr th:if="${#lists.isEmpty(candidates)}">
+                <td colspan="6" class="empty">등록된 후보가 없다.</td>
+            </tr>
+            </tbody>
+        </table>
+    </section>
+</main>
+</body>
+</html>

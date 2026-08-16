@@ -2,104 +2,97 @@
 
 ## 마지막 갱신일
 
-- 2026-08-17 01:10:04
+- 2026-08-17 01:56:29 KST
 
 # 중단기 작업 기억
 
 ## 이번 범위
 
-- 사용자 Q1~Q8과 추가 운영 결정을 장기 source of truth에 반영했다.
-- 초기 아키텍처를 discovery, eligibility, ranking, content, generation, approval, cooldown, module, data model, UI, roadmap 수준으로 상세화했다.
-- Option A~C 기술 스택을 비교하고 Spring Boot 서버 렌더링 modular monolith를 추천했다.
-- 애플리케이션 코드와 project skeleton은 생성하지 않았다.
+- Candidate 수동 입력 → Evidence 수동 입력 → deterministic Eligibility 판정 → 후보 목록·상세 UI의 첫 thin vertical slice를 구현했다.
+- Candidate와 CandidateEvidence용 V2 Flyway migration, JPA entity·repository, 동기식 reassessment service를 추가했다.
+- hard exclude 우선순위와 profession·identity evidence 최소 기준을 golden fixture로 고정했다.
+- `AGENTS.md` Commands와 `PROJECT_CONTEXT.md`의 기술 스택·인증·현재 구현 상태를 실제 저장소에 맞게 교정했다.
 
 ## 현재 상태
 
-- MVP 상세 설계 보고서가 완료된 상태이다.
-- 첫 release mode는 `APPROVAL_REQUIRED + MANUAL_EXECUTION`으로 확정됐다.
-- 일일 목표는 운영자 검토가 가능한 신규 `ELIGIBLE` 후보 최대 15명이며 quota가 아니다.
-- 모발이식 관련 불확실 후보는 `REVIEW_REQUIRED`이다.
-- browser action automation과 Meta 필수 연동은 MVP 범위에서 제외됐다.
-- 추천 기술 스택은 Spring Boot + Spring MVC/Thymeleaf + PostgreSQL + Docker Compose이지만 아직 사용자 확정 Decision은 아니다.
-- 테스트·빌드·정적 검사·실행 명령은 애플리케이션이 없어 `TODO` 상태이다.
+- `/candidates`에서 후보 목록을 보고 `/candidates/new`에서 후보를 등록할 수 있다.
+- `/candidates/{id}`에서 기본 정보, 현재 판정과 사유, evidence를 확인하고 evidence를 추가하거나 명시적으로 재판정할 수 있다.
+- 후보 생성은 evidence 부족 상태를 `REVIEW_REQUIRED`로 저장하고, evidence 추가는 같은 service 흐름에서 자동 재판정한다.
+- policy, service, MVC·Thymeleaf의 DB 비의존 테스트 19개가 통과한다.
+- PostgreSQL이 필요한 context/persistence 테스트 4개는 현재 실행 환경의 Docker socket 접근 제한 때문에 검증하지 못했다.
 
-## 확정 운영 정책 요약
+## 검증 환경 제약
 
-- 초기 대상은 대한민국 한국어 계정의 의사·약사이며 진료과 quota는 두지 않는다.
-- bio/category만으로 profession을 통과시키지 않고 강한 공개 근거와 Instagram identity 연결을 요구한다.
-- 최근 30일 활동을 우선하며 활동 기간만으로 hard exclude하지 않는다.
-- 후보당 하루 신규 outbound action은 하나이며 content interaction을 먼저 검토하고 DM은 별도 시점·별도 승인으로 다룬다.
-- cold DM 무응답 재발송 금지, 동일 post comment 1회, candidate cooldown 30일, 거절·연락 중단·차단 permanent suppression을 적용한다.
-- 공개 데이터와 외부 AI 전달은 permalink·구조화 사실·최소 excerpt 중심으로 최소화한다.
-- `prompts/tasks/*.md`는 민감 정보를 제외하고 기본 Git commit 대상이다.
-
-## 구현 권장안
-
-- 배포 단위 하나의 Spring Boot modular monolith를 사용한다.
-- 서버 렌더링 UI로 Daily Workbench, Candidate Workspace, Discovery & Policy Admin 세 화면을 구성한다.
-- PostgreSQL을 system of record로 사용하고 policy·assessment·draft·approval·interaction을 versioned·auditable하게 저장한다.
-- Phase 1은 manual seed, evidence, deterministic eligibility, review queue부터 시작한다.
-- Search API와 Meta Business Discovery는 core dependency가 아닌 optional read adapter로 둔다.
-
-## 남은 결정과 blocker
-
-- Phase 1 코드 착수의 `P0 Blocker`는 기술 스택과 operator 인증 방식 확정이다.
-- follower evidence TTL, approval TTL, 90일 초과 activity 처리, retention·AI provider gate는 후속 결정이 필요하다.
-- 특정 Search API provider 선정과 Meta prerequisites 조사는 manual-first MVP blocker가 아니다.
-- 이번 문서 작업 완료에는 blocker가 없다.
+- `docker compose up -d postgres`는 `/var/run/docker.sock` 접근 권한 거부로 실행되지 않았다.
+- localhost 5432에도 PostgreSQL이 열려 있지 않아 전체 `./mvnw test`는 DB 연결 단계에서만 실패했다.
+- `./mvnw package`는 기본 Maven cache가 read-only이고 필요한 `maven-jar-plugin:3.5.0`이 미캐시 상태라 실패했다. writable 임시 cache로도 외부 DNS가 차단돼 plugin을 받을 수 없었다.
+- Docker와 Maven Central 접근이 가능한 환경에서 전체 test/package와 live UI smoke를 다시 실행해야 한다.
 
 # 직전 작업 기억
 
 ## PROJECT_CONTEXT 반영 여부
 
-- 반영했다. 기존 Q1~Q8 미확정 항목을 해소하고 장기 정책에 Decision ID를 부여했다.
-- Meta account 상태와 기술 스택·TTL·보유 기간 등 미확정 사실은 Decision으로 추측하지 않았다.
+- 반영했다. 애플리케이션 코드 없음, 기술 스택 미확정, local 인증 P0 blocker라는 stale 내용을 제거했다.
+- 확정 기술 스택, thin-slice 우선순위, local 인증 유예와 외부 배포 전 인증 필요성을 결정 사항에 기록했다.
 
 ## 직전 작업 delta
 
-- `agent_outputs/reports/mvp_implementation_plan.md`: 구현 직전 수준의 MVP 상세 설계와 Phase별 계획을 추가했다.
-- `agent_outputs/clarification_requests/20260817_005758_mvp_implementation_decisions.md`: 구현 전 남은 P0/P1/P2 질문을 추가했다.
-- `docs/harness/PROJECT_CONTEXT.md`: 사용자 확정 정책, 최신 미확정 질문, 새 보고서 링크를 반영했다.
-- `docs/harness/HANDOFF.md`: 이번 결과, 추천 스택, 다음 단계와 blocker로 교체했다.
+- `src/main/resources/db/migration/V2__create_candidate_and_evidence.sql`: candidates와 candidate_evidence 테이블, enum check, username unique·lowercase, follower 음수 방지, FK, index를 추가했다.
+- `src/main/java/com/losmos/hrsnsauto/candidate/`: domain, enum, repository, fail-closed policy, form validation, service, MVC controller를 추가했다.
+- `src/main/resources/templates/candidates/`, `src/main/resources/static/css/app.css`: 목록, 신규 등록, 상세·evidence 입력 UI를 추가했다.
+- `src/test/java/com/losmos/hrsnsauto/candidate/`: golden policy 14개와 service, persistence, MVC·form validation 테스트를 추가했다.
+- `src/test/resources/mockito-extensions/`: 현재 JVM에서 test mock을 안정적으로 생성하기 위한 test-scope mock maker 설정을 추가했다.
+- `AGENTS.md`, `docs/harness/PROJECT_CONTEXT.md`, `docs/harness/HANDOFF.md`: 실행 명령과 source of truth를 현실화했다.
 
 ## 마지막 작업 요약
 
-- manual-first MVP가 특정 Search·Meta provider 없이도 후보 발굴부터 승인·수동 실행 기록까지 동작하도록 범위를 확정하고, 구현 순서를 Phase 1~5로 구체화했다.
+- 자동 discovery, scraping, LLM, outreach, 인증을 추가하지 않고 첫 핵심 업무 가설만 브라우저 기반 수직 흐름으로 연결했다.
 
 ## 변경 파일
 
-- `agent_outputs/reports/mvp_implementation_plan.md`
-- `agent_outputs/clarification_requests/20260817_005758_mvp_implementation_decisions.md`
+- `AGENTS.md`
 - `docs/harness/PROJECT_CONTEXT.md`
 - `docs/harness/HANDOFF.md`
+- `src/main/java/com/losmos/hrsnsauto/candidate/`
+- `src/main/resources/db/migration/V2__create_candidate_and_evidence.sql`
+- `src/main/resources/templates/candidates/`
+- `src/main/resources/static/css/app.css`
+- `src/test/java/com/losmos/hrsnsauto/candidate/`
+- `src/test/resources/mockito-extensions/org.mockito.plugins.MockMaker`
 
 ## 생성 산출물
 
-- `agent_outputs/reports/mvp_implementation_plan.md`
-- `agent_outputs/clarification_requests/20260817_005758_mvp_implementation_decisions.md`
+- 새 report나 clarification request를 만들지 않았다.
+- 작업 시작 전 존재한 미추적 `prompts/tasks/implement_candidate_eligibility_vertical_slice.md`는 수정하지 않았다.
 
 ## 다음 추천 작업 상세
 
-1. 새 clarification request의 Q1·Q2에 답해 기술 스택과 인증 방식을 확정한다.
-2. 답변을 반영한 Phase 1 구현 task prompt를 `prompts/tasks/`에 작성한다.
-3. Phase 1에서 eligibility golden fixture와 DB constraint·audit 기준을 먼저 구현한다.
-4. Phase 2 전 Search API가 필요하면 공식 문서·계약·동일 query fixture 기반 provider spike를 수행한다.
-5. Meta account prerequisites가 확인될 때만 외부 action 없는 read-only spike를 별도 수행한다.
+1. Docker 접근과 Maven Central 접근이 가능한 환경에서 `docker compose up -d postgres`, `docker compose ps`, `./mvnw test`, `./mvnw package`를 실행한다.
+2. 임시 포트로 애플리케이션을 띄워 후보 등록, strong profession·identity evidence 추가, `REVIEW_REQUIRED` → `ELIGIBLE` 전환을 브라우저에서 확인한다.
+3. 실제 운영자 샘플 후보를 소수 입력해 입력 편의성, 판정 사유의 이해 가능성, false positive·false negative를 기록한다.
+4. 실제 사용에서 확인된 문제를 기준으로 Candidate/Evidence 수정 기능 등 다음 한 개의 작은 slice를 선택한다.
 
 ## 이전 추천 작업과의 관계
 
-- 이전 Handoff는 Q1~Q8 답변과 eligibility·cooldown·approval 구체화를 추천했다. 최신 사용자 요청이 해당 답변을 제공해 이번 작업에서 수행했다.
-- 이전에 권장된 Meta read-only spike는 Q7 상태가 미확인이고 Meta가 MVP blocker가 아니라는 최신 결정에 따라 수행하지 않았다. optional investigation으로 유지한다.
+- 이전 Handoff는 기술 스택과 인증 답변 후 Phase 1 구현을 추천했다. 최신 사용자 요청이 기술 스택을 확정하고 local 인증을 blocker에서 제외했으므로 바로 thin vertical slice를 구현했다.
+- 이전에 추천한 Search API·Meta spike와 generation·approval 후속 기능은 최신 범위 밖이므로 수행하지 않았다.
 
 ## 검증 상태
 
-- 문서 heading, Phase별 필수 항목, clarification 형식, 핵심 Decision과 미확정 구분을 `rg`로 확인했다.
-- `git diff --check`가 통과했고 `git diff`·`git status`로 변경 범위를 확인했다.
-- 애플리케이션이 없어 코드 테스트, build, 정적 검사는 실행할 수 없다.
+- `./mvnw -DskipTests compile`: 성공했다.
+- `./mvnw -Dtest=EligibilityPolicyTest,CandidateServiceTest,CandidateControllerTest test`: DB 비의존 정책·service·MVC 테스트가 통과했다.
+- 전체 `./mvnw test`: 총 23개 중 19개 통과, PostgreSQL 연결이 필요한 4개만 오류가 발생했다.
+- `./mvnw package`: 필요한 Maven plugin을 현재 read-only/offline 환경에서 resolve할 수 없어 테스트 실행 전 실패했다.
+- MockMvc로 후보 목록, 신규 후보 form, 후보 상세와 eligibility 사유·evidence form 렌더링을 확인했다.
+- `git diff --check`, trailing whitespace 검색, 핵심 정책·DB constraint `rg` 검증이 통과했다.
+- live application HTTP smoke는 PostgreSQL을 시작할 수 없어 수행하지 못했다.
+
+## 사용 에이전트
+
+- Codex를 사용했다.
 
 ## 주의할 점
 
-- 구체 Spring·PostgreSQL version은 skeleton 생성 시 공식 지원 상태를 다시 확인하고 pin한다.
-- 특정 Search API의 가격·이용 가능성·품질은 공식 문서와 실제 계약 확인 없이 단정하지 않는다.
-- 외부 AI production 호출은 retention·학습 사용·보유·subprocessor 검토 전 활성화하지 않는다.
-- 작업 시작 전 존재한 `prompts/tasks/define_mvp_and_implementation_plan.md` 미추적 파일은 수정하지 않았다.
+- local thin slice에 인증이 없으므로 외부 네트워크에 노출하지 않는다.
+- Evidence URL은 자동 fetch하지 않으며 운영자가 공개 근거를 직접 확인해 입력한다.
+- Hibernate `ddl-auto=validate`를 유지하므로 새 환경에서 V2 Flyway migration 성공을 반드시 확인한다.

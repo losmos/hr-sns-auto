@@ -21,12 +21,15 @@
 
 ## Commands
 
-프로젝트별 실행 명령을 아래에 채운다. 새 프로젝트 reset 시 이 섹션을 실제 명령으로 갱신한다.
+테스트, 빌드, 실행 전에 PostgreSQL을 시작하고 health 상태를 확인한다.
 
-- 테스트: TODO
-- 빌드: TODO
-- 정적 검사: TODO
-- 실행: TODO
+- PostgreSQL 시작: `docker compose up -d postgres`
+- PostgreSQL 상태 확인: `docker compose ps`
+- 테스트: `./mvnw test`
+- 빌드: `./mvnw package`
+- 정적 검사: 전용 formatter, linter, static analysis 도구는 아직 없다. 변경 검증에는 `git diff --check`를 사용한다.
+- 실행: `./mvnw spring-boot:run`
+- 임시 포트 실행: 로컬 8080 포트를 사용할 수 없을 때 `SERVER_PORT=18080 ./mvnw spring-boot:run`처럼 override한다.
 
 ## Language
 - 모든 사용자 응답은 한국어로 작성한다.

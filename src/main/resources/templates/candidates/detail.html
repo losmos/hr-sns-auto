@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title th:text="${'@' + candidate.instagramUsername + ' | hr-sns-auto'}"></title>
+    <link rel="stylesheet" th:href="@{/css/app.css}">
+</head>
+<body>
+<main class="container">
+    <nav><a th:href="@{/candidates}">← 후보 목록</a></nav>
+    <header class="page-header">
+        <div>
+            <p class="eyebrow">Candidate detail</p>
+            <h1 th:text="|@${candidate.instagramUsername}|"></h1>
+            <p class="muted" th:text="${candidate.displayName}"></p>
+        </div>
+        <form th:action="@{/candidates/{id}/reassess(id=${candidate.id})}" method="post">
+            <button type="submit" class="secondary">현재 evidence로 재판정</button>
+        </form>
+    </header>
+
+    <p class="flash" th:if="${message}" th:text="${message}"></p>
+
+    <section class="panel">
+        <h2>현재 판정</h2>
+        <p>
+            <span class="status status-large"
+                  th:attr="data-status=${candidate.eligibilityStatus}"
+                  th:text="${candidate.eligibilityStatus}"></span>
+        </p>
+        <p class="reason" th:text="${candidate.eligibilityReason}"></p>
+    </section>
+
+    <section class="panel">
+        <h2>기본 정보</h2>
+        <dl class="facts">
+            <div><dt>Profession</dt><dd th:text="${candidate.profession}"></dd></div>
+            <div><dt>전문 분야</dt><dd th:text="${candidate.specialty ?: '미입력'}"></dd></div>
+            <div>
+                <dt>Follower</dt>
+                <dd th:text="${candidate.followerCount == null ? '미확인' : #numbers.formatInteger(candidate.followerCount, 1, 'COMMA')}"></dd>
+            </div>
+            <div><dt>모발이식 관련성</dt><dd th:text="${candidate.hairTransplantRelation}"></dd></div>
+            <div><dt>등록 시각</dt><dd th:text="${candidate.createdAt}"></dd></div>
+            <div><dt>최근 갱신</dt><dd th:text="${candidate.updatedAt}"></dd></div>
+        </dl>
+    </section>
+
+    <section class="panel">
+        <h2>Evidence</h2>
+        <div class="evidence-list" th:unless="${#lists.isEmpty(evidenceList)}">
+            <article class="evidence" th:each="evidence : ${evidenceList}">
+                <div class="evidence-heading">
+                    <strong th:text="|${evidence.type} · ${evidence.strength}|"></strong>
+                    <span class="muted" th:text="${evidence.observedAt}"></span>
+                </div>
+                <p th:text="${evidence.summary}"></p>
+                <a th:href="${evidence.sourceUrl}" th:text="${evidence.sourceUrl}"
+                   target="_blank" rel="noopener noreferrer"></a>
+            </article>
+        </div>
+        <p class="empty" th:if="${#lists.isEmpty(evidenceList)}">등록된 evidence가 없다.</p>
+    </section>
+
+    <section class="panel">
+        <h2>Evidence 추가</h2>
+        <p class="muted">URL 내용은 자동으로 가져오지 않는다. 운영자가 공개 근거를 직접 확인해 기록한다.</p>
+        <form class="form-grid" th:action="@{/candidates/{id}/evidence(id=${candidate.id})}"
+              th:object="${evidenceForm}" method="post">
+            <label>
+                Type
+                <select th:field="*{type}">
+                    <option th:each="item : ${evidenceTypes}" th:value="${item}" th:text="${item}"></option>
+                </select>
+                <span class="field-error" th:if="${#fields.hasErrors('type')}" th:errors="*{type}"></span>
+            </label>
+
+            <label>
+                Strength
+                <select th:field="*{strength}">
+                    <option th:each="item : ${evidenceStrengths}" th:value="${item}" th:text="${item}"></option>
+                </select>
+                <span class="field-error" th:if="${#fields.hasErrors('strength')}"
+                      th:errors="*{strength}"></span>
+            </label>
+
+            <label class="full-width">
+                공개 근거 URL
+                <input type="url" th:field="*{sourceUrl}" placeholder="https://example.com/public-profile">
+                <span class="field-error" th:if="${#fields.hasErrors('sourceUrl')}"
+                      th:errors="*{sourceUrl}"></span>
+            </label>
+
+            <label class="full-width">
+                확인 내용 요약
+                <textarea th:field="*{summary}" rows="4"
+                          placeholder="어떤 공개 정보로 무엇을 확인했는지 기록한다."></textarea>
+                <span class="field-error" th:if="${#fields.hasErrors('summary')}"
+                      th:errors="*{summary}"></span>
+            </label>
+
+            <label>
+                관찰 시각 (KST)
+                <input type="datetime-local" th:field="*{observedAt}">
+                <span class="field-error" th:if="${#fields.hasErrors('observedAt')}"
+                      th:errors="*{observedAt}"></span>
+            </label>
+
+            <div class="actions full-width">
+                <button type="submit">Evidence 추가 및 재판정</button>
+            </div>
+        </form>
+    </section>
+</main>
+</body>
+</html>

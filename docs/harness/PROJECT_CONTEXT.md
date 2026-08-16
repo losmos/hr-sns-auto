@@ -13,9 +13,11 @@
 - 시스템이 매일 적합한 신규 후보를 제시하고, 운영자가 근거와 문안을 검토한 뒤 외부 행동 여부를 결정하는 흐름이다.
 - 첫 release에서 시스템은 외부 Instagram action을 실행하지 않고 운영자의 manual execution을 지원한다.
 - 2026-08-16에 범용 하네스를 새 프로젝트용으로 초기화했고, 2026-08-17에 첫 요구사항 분석·공식 Instagram API 가능성 조사와 사용자 Q1~Q8 결정 반영을 수행했다.
+- 2026-08-17에 Spring Boot 애플리케이션 skeleton과 PostgreSQL baseline을 확인하고 첫 Candidate → Evidence → Eligibility thin vertical slice를 구현했다.
 
 ## 목표
 
+- 현재 우선순위는 정식 제품 구조 확장보다 Candidate 수동 입력, 공개 evidence 기록, deterministic eligibility 판정, 목록·상세 UI를 실제 사용 관점에서 검증하는 것이다.
 - 매일 모든 필수 eligibility 검증을 통과한 `ELIGIBLE` 신규 Instagram 후보를 운영자가 검토할 수 있도록 최대 15명 제시한다. 15명은 quota가 아니다.
 - 실제 의사·약사 여부, 한의 계열 여부, 모발이식 관련 여부, follower 10,000 미만 여부, 최근 활동 여부를 독립적으로 판정하고 사람이 확인할 근거를 남긴다.
 - 후보의 실제 최근 콘텐츠에 grounded된 댓글과 DM 초안을 만든다.
@@ -37,7 +39,8 @@
 - Instagram 원본 media를 기본 저장하지 않고 공개 전문 정보·permalink·구조화 사실·최소 excerpt·관찰 시점을 중심으로 저장한다.
 - API capability, permission, rate limit은 구현 전에 고정 API version과 실제 계정 조건으로 재검증한다.
 - Meta Business Discovery와 특정 Search API는 MVP 필수 dependency로 두지 않는다.
-- 애플리케이션 기술 스택, 운영자 인증 방식과 실행 명령은 아직 확정되지 않았다.
+- 확정 기술 스택은 Java 21, Spring Boot 4.1.0, Spring MVC, Thymeleaf, Spring Data JPA, PostgreSQL 18.4, Flyway, Docker Compose, Maven Wrapper이다.
+- local thin slice에는 Spring Security와 로그인을 구현하지 않는다. 외부 네트워크 배포 또는 실제 운영 전에 named operator 인증과 권한을 반드시 결정하고 구현해야 한다.
 
 ## 확정된 사실
 
@@ -46,7 +49,9 @@
 - 후보 분류 상태는 `ELIGIBLE`, `INELIGIBLE`, `REVIEW_REQUIRED`를 사용하도록 설계한다.
 - 후보 판정마다 source URL, 관찰값, 관찰일 등 사람이 확인할 evidence가 필요하다.
 - 실제 Instagram 로그인, follow, like, comment, DM 전송은 2026-08-17 분석 작업 범위에서 수행하지 않았다.
-- 애플리케이션 코드는 아직 구현하지 않았다.
+- Spring Boot 애플리케이션 skeleton, Maven Wrapper, Docker Compose PostgreSQL, Flyway baseline이 존재한다.
+- baseline에서 `./mvnw test`, PostgreSQL health, Spring Boot 연결, Flyway migration, JPA 초기화 성공이 확인됐다.
+- Candidate와 CandidateEvidence 영속성, deterministic EligibilityPolicy, 수동 입력·목록·상세 Thymeleaf UI가 첫 thin vertical slice로 구현됐다.
 - 석지웅 원장 Instagram account type, Facebook Page 연결 여부, Meta App 준비 상태는 현재 알 수 없다.
 - 2026-08-17 기준 Business Discovery는 이미 알고 있는 username의 공개 Business·Creator metadata와 일부 media를 조회하는 검증 기능이며 조건 기반 account search가 아니다.
 - 2026-08-17 기준 공식 API는 hashtagged media 탐색을 지원하지만, target username·owner 반환 여부는 확인하지 못해 후보 계정 discovery 수단으로 확정하지 않았다.
@@ -71,12 +76,14 @@
 - `DEC-20260817-meta-read-integration-optional`: 발신 계정·Page·Meta App 상태를 알 수 없으므로 Meta Business Discovery는 MVP blocker나 필수 기능이 아니다. 향후 prerequisites 확인 후 read-only validation/enrichment spike로만 검토한다.
 - `DEC-20260817-public-data-minimization`: username, permalink, 구조화 사실, 판정 evidence, 필요한 최소 excerpt, 관찰 시점을 중심으로 저장하고 Instagram 원본 media를 기본 보관하지 않는다. 외부 AI provider 전달도 생성 목적의 최소 범위로 제한한다.
 - `DEC-20260817-task-prompts-versioned`: secret·민감 정보를 제외한 `prompts/tasks/*.md`는 작업 의도와 재현성을 위한 프로젝트 기록으로 기본 Git commit 대상이다.
-- 기술 스택 추천, 구체 evidence TTL, approval TTL, 90일 초과 후보의 두 허용 처리 중 하나, 보유 기간과 실제 AI·Search provider는 아직 확정 Decision이 아니다.
+- `DEC-20260817-application-stack`: Java 21과 Spring Boot 4.1.0 기반 Spring MVC/Thymeleaf 애플리케이션, Spring Data JPA, PostgreSQL 18.4, Flyway, Docker Compose, Maven Wrapper를 현재 기술 스택으로 사용한다.
+- `DEC-20260817-thin-vertical-slice-first`: 정식 제품 구조를 먼저 확장하지 않고 Candidate 수동 입력 → Evidence 입력 → deterministic Eligibility 판정 → 목록·상세 UI의 실제 업무 가치를 먼저 검증한다.
+- `DEC-20260817-local-auth-deferred`: local thin slice의 기능 가치 검증에는 Spring Security와 로그인을 넣지 않는다. 이는 shared anonymous production access 허용 결정이 아니며 외부 배포·실제 운영 전에 인증과 권한을 구현한다.
+- 구체 evidence TTL, approval TTL, 90일 초과 후보의 두 허용 처리 중 하나, 보유 기간과 실제 AI·Search provider는 아직 확정 Decision이 아니다.
 
 ## 미확정 질문
 
-- `P0 Blocker`: Phase 1 코드 착수 전에 추천 Option A를 포함한 애플리케이션 기술 스택을 확정해야 한다.
-- `P0 Blocker`: named operator 인증 방식과 최소 role을 확정해야 한다.
+- `P1 Investigation`: 외부 네트워크 배포 또는 실제 운영 전 named operator 인증 방식과 최소 role을 확정해야 한다.
 - `P1 Investigation`: follower evidence TTL·임계값 인접 재확인 범위와 approval TTL을 정해야 한다.
 - `P1 Investigation`: 공개 profile·content의 구체 보유·삭제 기간과 실제 AI provider의 학습·보유·subprocessor 조건을 정해야 한다.
 - `P1 Investigation`: 특정 Search API를 사용하려면 공식 이용조건, 가격, 신규 이용 가능성, query quality와 저장 제한을 비교해야 한다.
@@ -89,16 +96,15 @@
 - 요구사항·기술 가능성·초기 아키텍처 보고서: `agent_outputs/reports/instagram_medical_outreach_system_design.md`
 - MVP 상세 설계·구현 계획: `agent_outputs/reports/mvp_implementation_plan.md`
 - 답변 완료된 과거 질문 기록: `agent_outputs/clarification_requests/instagram_medical_outreach_requirements.md`
-- 구현 전 남은 결정 질문지: `agent_outputs/clarification_requests/20260817_005758_mvp_implementation_decisions.md`
+- 과거 구현 전 결정 질문지: `agent_outputs/clarification_requests/20260817_005758_mvp_implementation_decisions.md`의 기술 스택·local 인증 P0는 2026-08-17 최신 사용자 방향으로 해소됐다.
 - 긴 분석, 계획, 리뷰, 감사 보고서는 `agent_outputs/reports/`에 저장한다.
 - 실행 로그는 `agent_outputs/run_logs/`, 사용자 답변이 필요한 질문지는 `agent_outputs/clarification_requests/`에 저장한다.
 
 ## 다음 작업 기준
 
-- 구현 전 남은 clarification request 답변 중 장기적으로 유효한 내용을 이 문서에 승격한다.
-- Phase 1은 manual seed, evidence, deterministic eligibility, review queue부터 구현한다.
+- 첫 thin vertical slice를 실제 운영자 샘플로 사용해 입력 편의성, evidence 판정 사유의 이해 가능성, false positive·false negative를 우선 검증한다.
+- 검증에서 확인된 문제만 다음 작은 구현 범위로 정하고, 기존 상세 roadmap의 후속 기능을 한꺼번에 확장하지 않는다.
 - Meta read-only spike는 계정 prerequisites가 확인될 때만 수행하며 Phase 1~4의 선행조건으로 두지 않는다.
-- 모발이식 hard-exclude와 ambiguous review, evidence freshness, duplicate·cooldown을 fixture와 boundary test로 먼저 검증한 뒤 generation을 연결한다.
-- 기술 스택이 확정되면 `AGENTS.md`의 테스트, 빌드, 정적 검사, 실행 명령을 실제 값으로 갱신한다.
+- 모발이식 hard-exclude와 ambiguous review, evidence 부족 fail-closed, follower 경계값은 golden fixture를 유지한다.
 - 긴 조사 전문은 이 문서에 누적하지 않고 관련 `agent_outputs/` 경로를 연결한다.
 - 작업 종료 시 `docs/harness/HANDOFF.md`를 갱신한다.
