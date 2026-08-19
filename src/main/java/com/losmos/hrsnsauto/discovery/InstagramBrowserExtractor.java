@@ -3,9 +3,11 @@ package com.losmos.hrsnsauto.discovery;
 import java.net.URI;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -16,25 +18,34 @@ import org.springframework.stereotype.Component;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.TimeoutError;
+import com.microsoft.playwright.options.WaitForSelectorState;
 
 @Component
 public class InstagramBrowserExtractor {
 
-	private static final int MAX_AUTHOR_LINKS = 30;
+	private static final int MAX_ARTICLE_LINKS = 30;
+	private static final int MAX_EARLY_AUTHOR_LINKS = 12;
+	private static final int MAX_DIAGNOSTIC_USERNAMES = 3;
 	private static final int MAX_VISIBLE_TEXT_LENGTH = 12_000;
+	private static final int POST_EXTRACTION_ATTEMPTS = 3;
+	private static final double POST_CONTAINER_WAIT_MILLIS = 4_000;
+	private static final double AUTHOR_LINK_WAIT_MILLIS = 1_200;
+	private static final double AUTHOR_RETRY_DELAY_MILLIS = 400;
 	private static final Pattern USERNAME_PATTERN = Pattern.compile(
 			"^[A-Za-z0-9_](?:[A-Za-z0-9._]{0,28}[A-Za-z0-9_])?$");
 	private static final Set<String> NON_PROFILE_PATHS = Set.of(
 			"p", "reel", "reels", "tv", "explore", "accounts", "direct", "stories",
 			"about", "developer", "legal", "web", "api");
 	private static final Set<String> POST_PATHS = Set.of("p", "reel", "tv");
-	// author는 caption이나 전역 navigation이 아니라 post의 semantic header/heading 안 link에서만 찾는다.
-	// Instagram이 generated CSS class를 바꿔도 이 fallback 목록 한 곳만 수정하도록 격리한다.
-	private static final String AUTHOR_LINK_SELECTOR = String.join(", ",
-			"main article header a[href]",
-			"[role='dialog'] article header a[href]",
-			"main article h1 a[href]",
-			"main article h2 a[href]");
+	// generated CSS class에 의존하지 않고 현재 post 자체의 visible article만 선택한다.
+	private static final String POST_CONTAINER_SELECTOR = String.join(", ",
+			"[role='dialog'] article:visible",
+			"main article:visible");
+	private static final String SEMANTIC_AUTHOR_LINK_SELECTOR = String.join(", ",
+			"header a[href]",
+			"h1 a[href]",
+			"h2 a[href]");
 	private static final List<String> PROFILE_METRIC_LABELS = List.of(
 			"posts", "post", "followers", "follower", "following", "게시물", "팔로워", "팔로우");
 	private static final List<String> PROFILE_CONTROL_LABELS = List.of(
@@ -48,17 +59,47 @@ public class InstagramBrowserExtractor {
 	}
 
 	Optional<InstagramPostBrowserSnapshot> extractPost(Page page) {
-		Optional<InstagramProfileLink> author = findAuthorCandidate(visibleLinks(page));
-		if (author.isEmpty()) {
-			return Optional.empty();
+		return extractPostWithDiagnostic(page).snapshot();
+	}
+
+	PostExtractionResult extractPostWithDiagnostic(Page page) {
+		if (!waitForPostContainer(page)) {
+			return PostExtractionResult.notFound(PostExtractionDiagnostic.missingContainer());
 		}
-		String articleText = firstVisibleText(page.locator("main article, [role='dialog'] article"));
-		return Optional.of(new InstagramPostBrowserSnapshot(
-				author.get().username(),
-				author.get().profileUrl(),
-				metricFromText(articleText, List.of("likes", "like", "좋아요")),
-				metricFromText(articleText, List.of("comments", "comment", "댓글")),
-				metricFromText(articleText, List.of("views", "view", "plays", "play", "조회", "재생"))));
+
+		waitForInitialArticleLink(page);
+		PostExtractionDiagnostic latestDiagnostic = PostExtractionDiagnostic.containerWithoutLinks();
+		for (int attempt = 0; attempt < POST_EXTRACTION_ATTEMPTS; attempt++) {
+			Locator article = postContainer(page);
+			if (safeCount(article) == 0) {
+				latestDiagnostic = PostExtractionDiagnostic.missingContainer();
+			}
+			else {
+				List<VisibleLink> articleLinks = visibleLinks(
+						article.locator("a[href]"), MAX_ARTICLE_LINKS);
+				List<VisibleLink> semanticLinks = visibleLinks(
+						article.locator(SEMANTIC_AUTHOR_LINK_SELECTOR), MAX_EARLY_AUTHOR_LINKS);
+				latestDiagnostic = diagnostic(articleLinks);
+				Optional<InstagramProfileLink> author = findAuthorCandidate(semanticLinks, articleLinks);
+				if (author.isPresent()) {
+					String articleText = boundedText(article);
+					return PostExtractionResult.found(
+							new InstagramPostBrowserSnapshot(
+									author.get().username(),
+									author.get().profileUrl(),
+									metricFromText(articleText, List.of("likes", "like", "좋아요")),
+									metricFromText(articleText, List.of("comments", "comment", "댓글")),
+									metricFromText(articleText,
+											List.of("views", "view", "plays", "play", "조회", "재생"))),
+							latestDiagnostic);
+				}
+			}
+			if (attempt < POST_EXTRACTION_ATTEMPTS - 1) {
+				// SPA 재렌더링을 위한 짧고 고정된 retry이며 random/stealth timing으로 사용하지 않는다.
+				page.waitForTimeout(AUTHOR_RETRY_DELAY_MILLIS);
+			}
+		}
+		return PostExtractionResult.notFound(latestDiagnostic);
 	}
 
 	Optional<InstagramProfileBrowserSnapshot> extractProfile(Page page, String expectedUsername) {
@@ -144,35 +185,37 @@ public class InstagramBrowserExtractor {
 	}
 
 	Optional<InstagramProfileLink> findAuthorCandidate(List<VisibleLink> links) {
-		for (VisibleLink link : links) {
-			Optional<InstagramProfileLink> candidate = authorCandidate(link.href(), link.visibleLabel());
-			if (candidate.isPresent()) {
-				return candidate;
-			}
+		return findAuthorCandidate(List.of(), links);
+	}
+
+	Optional<InstagramProfileLink> findAuthorCandidate(
+			List<VisibleLink> semanticLinks, List<VisibleLink> articleLinks) {
+		Optional<InstagramProfileLink> semanticCandidate = findTrustedCandidate(semanticLinks);
+		if (semanticCandidate.isPresent()) {
+			return semanticCandidate;
 		}
-		return Optional.empty();
+
+		// Caption mention과 commenter가 주로 뒤에 오는 DOM 특성을 이용하되 상단 검사 범위는 작게 제한한다.
+		int endIndex = Math.min(articleLinks.size(), MAX_EARLY_AUTHOR_LINKS);
+		return findTrustedCandidate(articleLinks.subList(0, endIndex));
 	}
 
 	Optional<InstagramProfileLink> authorCandidate(String href, String visibleLabel) {
-		if (href == null || href.isBlank() || visibleLabel == null || visibleLabel.isBlank()) {
-			return Optional.empty();
-		}
-		Optional<String> username = profileUsernameFromUrl(href);
-		if (username.isEmpty() || !containsExactLine(visibleLabel, username.get())) {
-			return Optional.empty();
-		}
-		return Optional.of(new InstagramProfileLink(
-				username.get(),
-				"https://www.instagram.com/" + username.get() + "/"));
+		return trustedLabeledCandidate(new VisibleLink(href, visibleLabel, null, null));
 	}
 
 	Optional<String> profileUsernameFromUrl(String value) {
 		try {
-			URI uri = URI.create(value.strip());
+			if (value == null || value.isBlank()) {
+				return Optional.empty();
+			}
+			String stripped = value.strip();
+			URI uri = URI.create(stripped);
 			if (uri.isAbsolute() && !isInstagramHttpsUri(uri)) {
 				return Optional.empty();
 			}
-			if (!uri.isAbsolute() && !value.strip().startsWith("/")) {
+			if (!uri.isAbsolute()
+					&& (uri.getRawAuthority() != null || !stripped.startsWith("/") || stripped.startsWith("//"))) {
 				return Optional.empty();
 			}
 			if (uri.getRawPath() != null && uri.getRawPath().contains("%")) {
@@ -195,24 +238,119 @@ public class InstagramBrowserExtractor {
 		}
 	}
 
-	private List<VisibleLink> visibleLinks(Page page) {
+	private boolean waitForPostContainer(Page page) {
+		try {
+			postContainer(page).waitFor(new Locator.WaitForOptions()
+					.setState(WaitForSelectorState.VISIBLE)
+					.setTimeout(POST_CONTAINER_WAIT_MILLIS));
+			return true;
+		}
+		catch (TimeoutError exception) {
+			return false;
+		}
+	}
+
+	private void waitForInitialArticleLink(Page page) {
+		try {
+			postContainer(page).locator("a[href]:visible").first().waitFor(new Locator.WaitForOptions()
+					.setState(WaitForSelectorState.VISIBLE)
+					.setTimeout(AUTHOR_LINK_WAIT_MILLIS));
+		}
+		catch (TimeoutError ignored) {
+			// Link가 아직 없더라도 아래 bounded retry가 최종 diagnostic과 안전한 실패를 만든다.
+		}
+	}
+
+	private Locator postContainer(Page page) {
+		return page.locator(POST_CONTAINER_SELECTOR).first();
+	}
+
+	private Optional<InstagramProfileLink> findTrustedCandidate(List<VisibleLink> links) {
+		Map<String, List<VisibleLink>> linksByUsername = new LinkedHashMap<>();
+		for (VisibleLink link : links) {
+			profileUsernameFromUrl(link.href()).ifPresent(username ->
+					linksByUsername.computeIfAbsent(username, ignored -> new ArrayList<>()).add(link));
+		}
+
+		for (Map.Entry<String, List<VisibleLink>> entry : linksByUsername.entrySet()) {
+			String username = entry.getKey();
+			List<VisibleLink> matchingLinks = entry.getValue();
+			// 같은 상단 profile href 반복은 text 없는 avatar와 username link 조합을 안전하게 포착한다.
+			if (matchingLinks.size() >= 2) {
+				return Optional.of(profileLink(username));
+			}
+			for (VisibleLink link : matchingLinks) {
+				if (containsExactLine(link.innerText(), username)) {
+					return Optional.of(profileLink(username));
+				}
+			}
+			for (VisibleLink link : matchingLinks) {
+				if (explicitlyNamesUsername(link.ariaLabel(), username)
+						|| explicitlyNamesUsername(link.title(), username)) {
+					return Optional.of(profileLink(username));
+				}
+			}
+		}
+		return Optional.empty();
+	}
+
+	private Optional<InstagramProfileLink> trustedLabeledCandidate(VisibleLink link) {
+		Optional<String> username = profileUsernameFromUrl(link.href());
+		if (username.isEmpty() || !containsExactLine(link.innerText(), username.get())) {
+			return Optional.empty();
+		}
+		return Optional.of(profileLink(username.get()));
+	}
+
+	private InstagramProfileLink profileLink(String username) {
+		return new InstagramProfileLink(
+				username,
+				"https://www.instagram.com/" + username + "/");
+	}
+
+	private boolean explicitlyNamesUsername(String value, String username) {
+		if (value == null || value.isBlank()) {
+			return false;
+		}
+		Pattern explicitUsername = Pattern.compile(
+				"(?i)(?<![A-Za-z0-9._])@?" + Pattern.quote(username) + "(?![A-Za-z0-9._])");
+		return explicitUsername.matcher(value).find();
+	}
+
+	private PostExtractionDiagnostic diagnostic(List<VisibleLink> articleLinks) {
+		int profileLikeLinkCount = 0;
+		Set<String> candidateUsernames = new LinkedHashSet<>();
+		for (VisibleLink link : articleLinks) {
+			Optional<String> username = profileUsernameFromUrl(link.href());
+			if (username.isPresent()) {
+				profileLikeLinkCount++;
+				candidateUsernames.add(username.get());
+			}
+		}
+		return new PostExtractionDiagnostic(
+				true,
+				articleLinks.size(),
+				profileLikeLinkCount,
+				candidateUsernames.stream().limit(MAX_DIAGNOSTIC_USERNAMES).toList());
+	}
+
+	private List<VisibleLink> visibleLinks(Locator locator, int maxLinks) {
 		List<VisibleLink> links = new ArrayList<>();
-		Locator locator = page.locator(AUTHOR_LINK_SELECTOR);
-		int count = Math.min(safeCount(locator), MAX_AUTHOR_LINKS);
+		int count = Math.min(safeCount(locator), maxLinks);
 		for (int index = 0; index < count; index++) {
 			Locator anchor = locator.nth(index);
 			try {
 				if (!anchor.isVisible()) {
 					continue;
 				}
-				String label = trimmed(anchor.innerText());
-				if (label == null) {
-					label = trimmed(anchor.getAttribute("aria-label"));
-				}
-				links.add(new VisibleLink(anchor.getAttribute("href"), label));
+				links.add(new VisibleLink(
+						anchor.getAttribute("href"),
+						trimmed(anchor.innerText()),
+						trimmed(anchor.getAttribute("aria-label")),
+						trimmed(anchor.getAttribute("title"))));
 			}
 			catch (PlaywrightException ignored) {
-				// 한 locator가 DOM 재렌더링으로 사라져도 같은 author 영역의 다음 후보를 확인한다.
+				// 한 anchor가 DOM 재렌더링으로 사라져도 같은 article의 다음 후보를 확인한다.
 			}
 		}
 		return links;
@@ -425,12 +563,18 @@ public class InstagramBrowserExtractor {
 		String host = uri.getHost();
 		return "https".equalsIgnoreCase(uri.getScheme())
 				&& host != null
+				&& uri.getRawUserInfo() == null
+				&& (uri.getPort() == -1 || uri.getPort() == 443)
 				&& (host.equalsIgnoreCase("instagram.com")
 						|| host.toLowerCase(Locale.ROOT).endsWith(".instagram.com"));
 	}
 
 	private String[] pathSegments(URI uri) {
-		return Arrays.stream(uri.getPath().split("/"))
+		String path = uri.getPath();
+		if (path == null) {
+			return new String[0];
+		}
+		return Arrays.stream(path.split("/"))
 				.filter(segment -> !segment.isBlank())
 				.toArray(String[]::new);
 	}
@@ -461,10 +605,66 @@ public class InstagramBrowserExtractor {
 		return value == null ? "" : value;
 	}
 
-	record VisibleLink(String href, String visibleLabel) {
+	record VisibleLink(String href, String innerText, String ariaLabel, String title) {
+
+		VisibleLink(String href, String innerText) {
+			this(href, innerText, null, null);
+		}
 	}
 
 	record InstagramProfileLink(String username, String profileUrl) {
+	}
+
+	record PostExtractionResult(
+			Optional<InstagramPostBrowserSnapshot> snapshot,
+			PostExtractionDiagnostic diagnostic) {
+
+		PostExtractionResult {
+			snapshot = snapshot == null ? Optional.empty() : snapshot;
+			diagnostic = diagnostic == null
+					? PostExtractionDiagnostic.missingContainer()
+					: diagnostic;
+		}
+
+		static PostExtractionResult found(
+				InstagramPostBrowserSnapshot snapshot, PostExtractionDiagnostic diagnostic) {
+			return new PostExtractionResult(Optional.of(snapshot), diagnostic);
+		}
+
+		static PostExtractionResult notFound(PostExtractionDiagnostic diagnostic) {
+			return new PostExtractionResult(Optional.empty(), diagnostic);
+		}
+	}
+
+	record PostExtractionDiagnostic(
+			boolean postContainerFound,
+			int visibleArticleLinkCount,
+			int profileLikeLinkCount,
+			List<String> candidateUsernames) {
+
+		PostExtractionDiagnostic {
+			candidateUsernames = candidateUsernames == null
+					? List.of()
+					: candidateUsernames.stream().limit(MAX_DIAGNOSTIC_USERNAMES).toList();
+		}
+
+		static PostExtractionDiagnostic missingContainer() {
+			return new PostExtractionDiagnostic(false, 0, 0, List.of());
+		}
+
+		static PostExtractionDiagnostic containerWithoutLinks() {
+			return new PostExtractionDiagnostic(true, 0, 0, List.of());
+		}
+
+		String compactSummary() {
+			String usernames = candidateUsernames.isEmpty()
+					? "-"
+					: String.join(",", candidateUsernames);
+			return "postContainer=" + (postContainerFound ? "found" : "missing")
+					+ ", articleLinks=" + visibleArticleLinkCount
+					+ ", profileLinks=" + profileLikeLinkCount
+					+ ", candidates=" + usernames;
+		}
 	}
 
 	enum BrowserPageState {

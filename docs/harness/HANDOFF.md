@@ -2,7 +2,7 @@
 
 ## 마지막 갱신일
 
-- 2026-08-20 01:52:47 KST
+- 2026-08-20 02:37:01 KST
 
 # 중단기 작업 기억
 
@@ -24,8 +24,8 @@
 ## 구현 구조
 
 - Microsoft Playwright Java `1.61.0` dependency를 추가했다.
-- `InstagramBrowserClient`가 persistent Chromium context 하나와 page 하나를 재사용한다. 기본 navigation timeout은 20초이고 DOM 초기 안정화를 위한 고정 500ms wait만 사용한다.
-- `InstagramBrowserExtractor`가 post author link와 profile/post field selector·fallback을 한 곳에 격리한다. post semantic header/heading의 profile link와 visible username이 일치할 때만 author로 인정하며 caption에서 username을 추측하지 않는다.
+- `InstagramBrowserClient`가 persistent Chromium context 하나와 page 하나를 재사용한다. 기본 navigation timeout은 20초이고 초기 500ms settle 뒤 post container 4초, 최초 article link 1.2초의 명시적 wait를 사용한다.
+- `InstagramBrowserExtractor`가 post author link와 profile/post field selector·fallback을 한 곳에 격리한다. semantic header/heading을 우선하고, 없으면 visible post article의 첫 30개 link 중 상단 12개만 대상으로 동일 profile 반복, visible username 일치, accessible label 일치를 DOM 순서대로 확인한다. caption text에서 username을 추측하지 않는다.
 - `InstagramMetricParser`가 `523`, `1,234`, `4.8천`, `1.2만`, `4.8K`, `1.2M`과 decimal comma를 처리한다. multiplier 적용 후 `HALF_UP`으로 정수화하며 불확실한 형식은 null로 둔다.
 - `InstagramBrowserEnrichmentService`의 fair `ReentrantLock`이 session 준비·단건·batch를 서로 배타적으로 실행한다.
 - batch는 browser observation이 없는 `NEW` item을 `publishedAt DESC, id DESC`로 조회해 기본 10건, 설정 1~15건을 하나씩 순차 처리한다.
@@ -64,31 +64,30 @@
 
 # 직전 작업 기억
 
-## DiscoveryPersistenceTest 격리 수정
+## Live author extraction 실패와 수정
 
-- browser enrichment commit `43c45ec`은 검증 전에 원격 `main`에 push된 상태이며 revert나 history rewrite를 하지 않았다.
-- 사용자 PostgreSQL에서 V5 migration은 성공했다.
-- 사용자 환경의 첫 전체 검증은 76개 중 failures 2, errors 0이었고 두 failure 모두 `DiscoveryPersistenceTest`에서 발생했다.
-- 원인은 shared dev DB의 기존 live `DiscoveryItem`과 `DiscoveryBrowserObservation`, mutable hashtag 상태를 무시한 최신 row·전체 count·정확한 enabled 집합 assertion이었다.
-- persistence test는 고유 synthetic media ID로 자기 item을 조회하고 item별 observation ID 보존을 검증하도록 수정했다.
-- caption fixture는 supplementary emoji를 사용하고 UTF-16 `String.length()`가 아니라 Unicode code point 500개 계약을 검증한다.
-- default hashtag 검증은 현재 enabled 집합이 정확히 3개라고 가정하지 않고 seed keyword row 존재만 확인한다.
-- production 코드와 Flyway V5 migration은 수정하지 않았고 DB cleanup 명령도 실행하지 않았다.
+- 사용자 macOS local GUI 환경에서 headed Playwright Chromium 실행과 Instagram session 준비·navigation이 성공했다.
+- 실제 Discovery item의 `브라우저 정보 가져오기`에서 login/challenge gate와 post unavailable 판정까지 통과한 뒤 `AUTHOR_EXTRACTION_FAILED: 게시물의 author profile link를 화면에서 확인하지 못함`이 발생했다.
+- 실패 원인은 actual Instagram desktop DOM이 초기의 conservative `header/h1/h2` selector 및 non-empty visible label 조건과 일치하지 않은 것으로 판단했다.
+- post navigation의 고정 500ms settle만 의존하지 않고 visible `main article` 또는 dialog article을 최대 4초 기다리며, article link를 최대 1.2초 기다린 뒤 400ms 간격으로 최대 3회 author 후보를 다시 읽는다.
+- semantic author link를 우선 유지하고 fallback은 선택한 article 내부 visible link만 최대 30개 수집한다. 상단 12개 안에서 같은 username profile href 반복, href username과 `innerText` 일치, `aria-label`·`title`에 username 명시를 순서대로 확인한다.
+- 상대·절대 Instagram profile URL과 명확한 query/hash를 허용하되 기존 `NON_PROFILE_PATHS`, multi-segment, percent-encoded path, external host 거부를 유지하고 protocol-relative external host도 거부한다.
+- 실패 요약에는 `postContainer`, article visible link 수, profile-like link 수, 검증된 candidate username 최대 3개만 넣는다. raw HTML, 전체 caption/page text, arbitrary URL, session 정보는 넣지 않는다.
+- profile metric extraction, Candidate/Eligibility, V5 schema와 Meta API Discovery는 수정하지 않았다.
 
-## 검증 상태
+## 자동화 검증 상태
 
-- `docker compose up -d postgres`, `docker compose ps`: Docker socket 권한 거부로 실행하지 못했다.
-- 이 sandbox에는 별도 PostgreSQL 실행 binary가 없고 `localhost:5432` 연결도 실패했다.
-- `./mvnw test`: 총 76개, failures 0, errors 11이다. DB 비의존 65개는 통과했지만 PostgreSQL을 쓰는 테스트는 connection 단계에서 중단돼 수정한 persistence assertion 자체는 실행되지 않았다.
-- `./mvnw package`: 같은 11개 DB connection error로 test 단계에서 실패했다.
-- `./mvnw test-compile`: production/test source 컴파일에 성공했다.
-- `./mvnw package -DskipTests`: executable jar 패키징에 성공했다. 이는 전체 package 성공을 대신하지 않는다.
-- 사용자 PostgreSQL의 기존 30건 이상 live Discovery data가 있는 상태에서 `./mvnw test`, `./mvnw package`를 다시 실행해야 최종 검증이 완료된다.
-- Codex sandbox에서는 browser binary/display/live Instagram network를 사용한 smoke test를 수행하지 않았다.
+- `docker compose up -d postgres`, `docker compose ps`: sandbox의 Docker socket 권한 거부로 PostgreSQL을 시작하거나 health 확인하지 못했다.
+- `./mvnw -Dtest=InstagramBrowserExtractorTest test`: 14개 모두 통과했다. 요구된 synthetic article 8개 사례, accessible label, bounded wait/retry와 diagnostic 제한을 포함한다.
+- `./mvnw test`: 총 87개, failures 0, errors 11이다. 새 테스트와 기존 DB 비의존 테스트 76개는 통과했고 PostgreSQL 의존 테스트 11개만 connection 단계에서 error가 발생했다.
+- `./mvnw package`: 같은 PostgreSQL connection error 11개 때문에 test 단계에서 실패했다.
+- `./mvnw package -DskipTests`: production/test compile과 executable jar 패키징에 성공했다. 이는 전체 package 성공을 대신하지 않는다.
+- `git diff --check`: HANDOFF 최종 변경까지 포함해 통과했다.
+- Codex에서는 실제 instagram.com network나 사용자의 persistent browser session을 호출하지 않았다. 수정된 selector의 live retest는 사용자 macOS 환경에서 필요하다.
 
-## 사용자 환경 smoke test
+## 사용자 환경 live retest
 
-1. PostgreSQL과 전체 build를 먼저 검증한다.
+1. PostgreSQL과 전체 자동화 검증을 먼저 완료한다.
 
 ```bash
 docker compose up -d postgres
@@ -97,13 +96,7 @@ docker compose ps
 ./mvnw package
 ```
 
-2. 공식 Playwright CLI 방식으로 이 dependency version의 Chromium을 별도 설치한다.
-
-```bash
-./mvnw exec:java -Dexec.mainClass=com.microsoft.playwright.CLI -Dexec.args="install chromium"
-```
-
-3. 기본 headed mode와 private project-local profile로 애플리케이션을 실행한다.
+2. 기존 전용 persistent profile을 그대로 사용해 headed mode로 애플리케이션을 실행한다.
 
 ```bash
 INSTAGRAM_BROWSER_AUTOMATION_ENABLED=true \
@@ -113,36 +106,36 @@ INSTAGRAM_BROWSER_BATCH_SIZE=10 \
 ./mvnw spring-boot:run
 ```
 
-4. `http://localhost:8080/discovery`에서 `Instagram 브라우저 열기 / 로그인 확인`을 누르고 열린 Chromium에서 사람이 직접 로그인한다.
-5. 실제 Discovery item 1건의 `브라우저 정보 가져오기`를 누르고 username, profile URL, follower/following/post count, bio excerpt, verified/private와 observedAt을 확인한다.
-6. 최대 3건 정도를 추가 확인하고 post like/comment/view가 보이지 않을 때 null로 남는지 확인한다.
-7. challenge/checkpoint/CAPTCHA가 표시되면 즉시 중단하고 자동 해결을 시도하지 않는다.
-8. session directory가 `git status --short`와 application log, DB observation에 나타나지 않는지 확인한다.
+3. `http://localhost:8080/discovery`에서 `Instagram 브라우저 열기 / 로그인 확인`을 눌러 기존 session이 `READY`인지 확인한다.
+4. 이전에 실패한 실제 Discovery item 1건에서 `브라우저 정보 가져오기`를 다시 누른다.
+5. author username과 canonical profile URL이 실제 게시물 author와 일치하고 profile metadata까지 저장되는지 확인한다.
+6. 실패하면 오류 요약의 `postContainer`, `articleLinks`, `profileLinks`, `candidates` 값만 공유한다. raw HTML, screenshot, cookie, session directory 내용은 공유하지 않는다.
+7. caption mention/commenter가 있는 item 1~2건에서 author 오탐이 없는지 확인한다.
+8. challenge/checkpoint/CAPTCHA가 표시되면 즉시 중단하고 자동 해결을 시도하지 않는다.
 
 ## 변경 파일
 
-- `src/test/java/com/losmos/hrsnsauto/discovery/DiscoveryPersistenceTest.java`: global-state assertion을 synthetic media identity와 item별 observation identity 기반으로 교체했다.
-- `docs/harness/HANDOFF.md`: 사용자 환경의 최초 failure와 후속 격리 수정, sandbox 검증 한계를 기록했다.
+- `src/main/java/com/losmos/hrsnsauto/discovery/InstagramBrowserClient.java`: author extraction 실패에 compact diagnostic을 연결했다.
+- `src/main/java/com/losmos/hrsnsauto/discovery/InstagramBrowserExtractor.java`: post wait/retry, article-scoped fallback, label/URL validation과 안전한 diagnostic을 추가했다.
+- `src/test/java/com/losmos/hrsnsauto/discovery/InstagramBrowserExtractorTest.java`: synthetic HTML과 bounded wait/retry 회귀 테스트를 추가했다.
+- `docs/harness/HANDOFF.md`: live 사실, 수정 내용, 검증 결과와 재검증 절차를 기록했다.
 
 ## 작업 전 파일 보존
 
-- 작업 시작 전 존재한 미추적 `prompts/tasks/fix_discovery_persistence_test_isolation.md`는 읽거나 수정하지 않았다.
-- clarification request는 만들지 않았다. 요청 범위와 안전 조건이 명확해 P0 blocker가 없었다.
-
-## 이전 추천 작업과의 관계
-
-- 이전 Handoff의 live browser smoke보다 최신 사용자의 persistence test 격리 수정을 먼저 수행했다.
-- live browser smoke와 `Browser observation → Candidate 연결`은 미수행 상태로 남겼다.
+- 작업 시작 전 존재한 미추적 `prompts/tasks/fix_live_instagram_author_extraction.md`는 읽거나 수정하지 않았다.
+- clarification request는 만들지 않았다. 요청 범위와 안전 조건이 명확해 P0/P1/P2 질문이 없었다.
+- `docs/harness/PROJECT_CONTEXT.md`에는 새 장기 결정이 없어 수정하지 않았다.
 
 ## 다음 추천 작업
 
-1. 기존 30건 이상 live Discovery data가 있는 사용자 PostgreSQL에서 전체 76개 테스트와 package를 다시 실행해 격리 수정을 최종 확인한다.
-2. 위 headed live smoke 절차로 selector fallback과 한국어/영문 화면 metric을 검증하고 실제 화면에서 확인된 문제만 작은 수정으로 반영한다.
-3. 다음 vertical slice로 `Browser observation → Candidate 연결 + username/history identity`를 구현한다.
+1. 사용자 macOS PostgreSQL 환경에서 전체 87개 테스트와 package를 통과시킨다.
+2. 위 절차로 이전 실패 item과 caption mention/commenter가 있는 item을 live 재검증한다.
+3. author 성공 후 profile DOM에서 새 문제가 실제 확인될 때만 profile extractor를 작은 범위로 수정한다.
+4. live browser enrichment가 안정화되면 `Browser observation → Candidate 연결 + username/history identity` vertical slice를 진행한다.
 
 ## 주의할 점
 
-- Instagram DOM과 visible label은 변경될 수 있으므로 generated CSS class를 controller/service에 추가하지 않고 `InstagramBrowserExtractor`의 semantic fallback만 수정한다.
+- Instagram DOM과 visible label은 변경될 수 있으므로 generated CSS class를 추가하지 않고 `InstagramBrowserExtractor`의 semantic/article fallback만 조정한다.
 - session profile은 일반 Chrome 기본 profile과 공유하지 않고 이 도구 전용 directory를 사용한다.
 - observation은 공개 screening 정보이지 profession/identity eligibility 확정 evidence가 아니다.
 - local thin slice에는 인증이 없으므로 외부 network에 노출하지 않는다.

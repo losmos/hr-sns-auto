@@ -89,14 +89,16 @@ public class InstagramBrowserClient {
 						"Instagram 게시물을 사용할 수 없거나 삭제됨");
 			}
 
-			Optional<InstagramPostBrowserSnapshot> extractedPost = extractor.extractPost(page);
-			if (extractedPost.isEmpty()) {
+			InstagramBrowserExtractor.PostExtractionResult extractedPost =
+					extractor.extractPostWithDiagnostic(page);
+			if (extractedPost.snapshot().isEmpty()) {
 				return InstagramBrowserEnrichmentResult.failure(
 						DiscoveryBrowserObservationStatus.FAILED,
 						InstagramBrowserErrorCode.AUTHOR_EXTRACTION_FAILED,
-						"게시물의 author profile link를 화면에서 확인하지 못함");
+						"게시물의 author profile link를 화면에서 확인하지 못함 ("
+								+ extractedPost.diagnostic().compactSummary() + ")");
 			}
-			post = extractedPost.get();
+			post = extractedPost.snapshot().get();
 
 			Response profileResponse = navigate(page, post.profileUrl());
 			blocked = blockedResult(extractor.pageState(page), post);
