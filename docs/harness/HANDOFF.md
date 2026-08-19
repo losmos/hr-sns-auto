@@ -2,7 +2,7 @@
 
 ## 마지막 갱신일
 
-- 2026-08-20 00:02:27 KST
+- 2026-08-20 01:52:47 KST
 
 # 중단기 작업 기억
 
@@ -64,26 +64,26 @@
 
 # 직전 작업 기억
 
-## 테스트 추가
+## DiscoveryPersistenceTest 격리 수정
 
-- metric parser의 plain/grouped/한국어·영문 compact count, decimal comma, `HALF_UP`, 모호값·overflow 거부를 검증한다.
-- profile URL/username validation과 author candidate link filtering을 synthetic link data로 검증한다.
-- partial/failure observation mapping, negative count 거부와 error sanitization을 검증한다.
-- browser disabled 경계, batch size 기본 10·상한 15·범위 밖 거부, sequential 호출, item별 저장, login-required batch 중단을 검증한다.
-- MVC에서 활성/비활성 UI, session·단건·batch route와 observation rendering을 검증한다.
-- PostgreSQL persistence test에 item별 최신 observation upsert 성격과 V5 entity mapping 검증을 추가했다.
+- browser enrichment commit `43c45ec`은 검증 전에 원격 `main`에 push된 상태이며 revert나 history rewrite를 하지 않았다.
+- 사용자 PostgreSQL에서 V5 migration은 성공했다.
+- 사용자 환경의 첫 전체 검증은 76개 중 failures 2, errors 0이었고 두 failure 모두 `DiscoveryPersistenceTest`에서 발생했다.
+- 원인은 shared dev DB의 기존 live `DiscoveryItem`과 `DiscoveryBrowserObservation`, mutable hashtag 상태를 무시한 최신 row·전체 count·정확한 enabled 집합 assertion이었다.
+- persistence test는 고유 synthetic media ID로 자기 item을 조회하고 item별 observation ID 보존을 검증하도록 수정했다.
+- caption fixture는 supplementary emoji를 사용하고 UTF-16 `String.length()`가 아니라 Unicode code point 500개 계약을 검증한다.
+- default hashtag 검증은 현재 enabled 집합이 정확히 3개라고 가정하지 않고 seed keyword row 존재만 확인한다.
+- production 코드와 Flyway V5 migration은 수정하지 않았고 DB cleanup 명령도 실행하지 않았다.
 
 ## 검증 상태
 
-- `docker compose up -d postgres`: Docker socket 권한 거부로 실행하지 못했다.
-- `docker compose ps`: 앞 명령이 실패해 health를 확인하지 못했다.
-- sandbox의 기본 `/home/sol/.m2`가 읽기 전용이고 outbound Maven DNS가 차단돼 실제 Playwright `1.61.0` artifact를 내려받지 못했다.
-- 임시 `/tmp` Maven cache와 compile-only Playwright API stub으로 production 57개·test 16개 소스 컴파일을 확인했다. 이는 실제 artifact 또는 live browser 검증이 아니다.
-- DB 비의존 신규·기존 테스트 65개는 failures 0, errors 0으로 통과했다.
-- 임시 검증 cache로 전체 `./mvnw test`를 실행한 결과 총 76개, failures 0, PostgreSQL 연결이 필요한 11개만 errors였다.
-- V5 Flyway migration과 JPA schema validation은 PostgreSQL connection 전 단계에서 중단돼 아직 실제 DB에서 검증되지 않았다.
-- 원래 `./mvnw package`는 Playwright artifact tracking file을 읽기 전용 Maven cache에 만들지 못해 dependency resolution 단계에서 실패했다.
-- `git diff --check`는 구현 중간 검사에서 통과했으며 문서 갱신 후 최종 재검증이 필요하다.
+- `docker compose up -d postgres`, `docker compose ps`: Docker socket 권한 거부로 실행하지 못했다.
+- 이 sandbox에는 별도 PostgreSQL 실행 binary가 없고 `localhost:5432` 연결도 실패했다.
+- `./mvnw test`: 총 76개, failures 0, errors 11이다. DB 비의존 65개는 통과했지만 PostgreSQL을 쓰는 테스트는 connection 단계에서 중단돼 수정한 persistence assertion 자체는 실행되지 않았다.
+- `./mvnw package`: 같은 11개 DB connection error로 test 단계에서 실패했다.
+- `./mvnw test-compile`: production/test source 컴파일에 성공했다.
+- `./mvnw package -DskipTests`: executable jar 패키징에 성공했다. 이는 전체 package 성공을 대신하지 않는다.
+- 사용자 PostgreSQL의 기존 30건 이상 live Discovery data가 있는 상태에서 `./mvnw test`, `./mvnw package`를 다시 실행해야 최종 검증이 완료된다.
 - Codex sandbox에서는 browser binary/display/live Instagram network를 사용한 smoke test를 수행하지 않았다.
 
 ## 사용자 환경 smoke test
@@ -121,28 +121,22 @@ INSTAGRAM_BROWSER_BATCH_SIZE=10 \
 
 ## 변경 파일
 
-- `pom.xml`: Playwright Java `1.61.0` dependency를 추가했다.
-- `.gitignore`, `application.properties`: private session directory와 browser 환경변수를 추가했다.
-- `src/main/java/com/losmos/hrsnsauto/discovery/`: browser properties/client/extractor/parser/sanitizer, orchestration/result, observation entity/repository/status를 추가하고 item/repository/controller를 연결했다.
-- `src/main/resources/db/migration/V5__create_discovery_browser_observations.sql`: 최신 observation schema를 추가했다.
-- `src/main/resources/templates/discovery/index.html`, `static/css/app.css`: browser 상태·버튼·batch summary·screening field UI를 추가했다.
-- `src/test/java/com/losmos/hrsnsauto/discovery/`: 신규 unit/synthetic/service/MVC/persistence 테스트를 추가했다.
-- `docs/harness/PROJECT_CONTEXT.md`, `HANDOFF.md`, `DIRECTORY_MAP.md`: superseded 결정, 최신 구조, 검증과 smoke 절차를 반영했다.
+- `src/test/java/com/losmos/hrsnsauto/discovery/DiscoveryPersistenceTest.java`: global-state assertion을 synthetic media identity와 item별 observation identity 기반으로 교체했다.
+- `docs/harness/HANDOFF.md`: 사용자 환경의 최초 failure와 후속 격리 수정, sandbox 검증 한계를 기록했다.
 
 ## 작업 전 파일 보존
 
-- 작업 시작 전 존재한 미추적 `prompts/tasks/add_instagram_browser_enrichment.md`는 읽거나 수정하지 않았다.
-- clarification request는 만들지 않았다. 최신 사용자 결정으로 기존 결정 충돌이 명시적으로 해소돼 P0 blocker가 없었다.
+- 작업 시작 전 존재한 미추적 `prompts/tasks/fix_discovery_persistence_test_isolation.md`는 읽거나 수정하지 않았다.
+- clarification request는 만들지 않았다. 요청 범위와 안전 조건이 명확해 P0 blocker가 없었다.
 
 ## 이전 추천 작업과의 관계
 
-- 이전 Handoff의 `운영자가 author username 입력 → Candidate 연결`보다 최신 사용자의 browser enrichment 요청을 우선해 구현했다.
-- Candidate 연결 자체는 수행하지 않았고 browser observation을 source로 사용하는 다음 vertical slice로 남겼다.
-- 기존 Candidate sample evidence 운영 검증은 이번 최신 요청보다 우선하지 않아 미수행 상태이다.
+- 이전 Handoff의 live browser smoke보다 최신 사용자의 persistence test 격리 수정을 먼저 수행했다.
+- live browser smoke와 `Browser observation → Candidate 연결`은 미수행 상태로 남겼다.
 
 ## 다음 추천 작업
 
-1. 사용자 환경에서 실제 Playwright dependency resolve, PostgreSQL V5 migration, 전체 76개 테스트와 package를 통과시킨다.
+1. 기존 30건 이상 live Discovery data가 있는 사용자 PostgreSQL에서 전체 76개 테스트와 package를 다시 실행해 격리 수정을 최종 확인한다.
 2. 위 headed live smoke 절차로 selector fallback과 한국어/영문 화면 metric을 검증하고 실제 화면에서 확인된 문제만 작은 수정으로 반영한다.
 3. 다음 vertical slice로 `Browser observation → Candidate 연결 + username/history identity`를 구현한다.
 
