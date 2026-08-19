@@ -13,7 +13,10 @@
             <p class="eyebrow">Candidate → Evidence → Eligibility</p>
             <h1>후보 목록</h1>
         </div>
-        <a class="button" th:href="@{/candidates/new}">신규 후보 등록</a>
+        <div class="actions">
+            <a class="button secondary" th:href="@{/discovery}">Discovery Inbox</a>
+            <a class="button" th:href="@{/candidates/new}">신규 후보 등록</a>
+        </div>
     </header>
 
     <p class="flash" th:if="${message}" th:text="${message}"></p>

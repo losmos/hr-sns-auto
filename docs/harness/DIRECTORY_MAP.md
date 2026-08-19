@@ -47,6 +47,23 @@
 │   │   └── verify_task_result.md
 │   └── tasks/
 │       └── .gitkeep
+├── src/
+│   ├── main/
+│   │   ├── java/com/losmos/hrsnsauto/
+│   │   │   ├── HrSnsAutoApplication.java
+│   │   │   ├── candidate/
+│   │   │   └── discovery/
+│   │   └── resources/
+│   │       ├── application.properties
+│   │       ├── db/migration/V1__...sql ~ V4__...sql
+│   │       ├── static/css/app.css
+│   │       └── templates/
+│   │           ├── candidates/
+│   │           └── discovery/index.html
+│   └── test/
+│       ├── java/com/losmos/hrsnsauto/candidate/
+│       ├── java/com/losmos/hrsnsauto/discovery/
+│       └── resources/
 └── scripts/
     ├── instagram_native_discovery_probe.py
     └── test_instagram_native_discovery_probe.py
@@ -82,6 +99,30 @@
 
 - `scripts/instagram_native_discovery_probe.py`: Python standard library만으로 Instagram-native candidate discovery 가능성을 live Graph API에서 확인하는 독립 probe이다.
 - `scripts/test_instagram_native_discovery_probe.py`: 외부 network 없이 probe의 URL, redaction, classification, parsing, dedupe를 확인하는 synthetic unit test이다.
+
+## src/main/java/
+
+- `com.losmos.hrsnsauto.candidate`: 수동 Candidate 등록, evidence 저장, deterministic eligibility 판정과 기존 MVC 흐름을 구현한다.
+- `com.losmos.hrsnsauto.discovery`: Discovery hashtag 설정, Instagram media inbox, 다중 hashtag association, review 상태, Meta Graph client, 수동 sync service와 `/discovery` MVC 흐름을 구현한다.
+- `MetaInstagramClient`: `META_ACCESS_TOKEN`, `META_GRAPH_API_VERSION`, `META_IG_USER_ID` 설정으로 hashtag lookup과 recent media 첫 page만 호출한다. Bearer header와 sanitized error 경계를 담당한다.
+- `DiscoveryService`: hashtag normalization·enable 상태, media ID upsert, source association, `NEW`·`OPENED`·`DISMISSED` 전이를 담당한다.
+
+## src/main/resources/
+
+- `application.properties`: PostgreSQL/Flyway 설정과 optional Meta 환경변수 mapping을 정의한다.
+- `db/migration/V1__baseline.sql` ~ `V3__add_hair_transplant_evidence_finding.sql`: 기존 Candidate schema migration이다.
+- `db/migration/V4__create_instagram_discovery_inbox.sql`: Discovery hashtag, media item, item-hashtag association schema와 기본 hashtag 3개를 추가한다.
+- `templates/candidates/`: Candidate 목록·등록·상세 Thymeleaf 화면이다.
+- `templates/discovery/index.html`: hashtag 관리, manual sync 결과, 상태 count·filter, media review action을 제공하는 Discovery Inbox 화면이다.
+- `static/css/app.css`: Candidate와 Discovery 화면이 공유하는 CSS이다.
+
+## src/test/
+
+- `java/com/losmos/hrsnsauto/candidate/`: 기존 Candidate domain·repository·service·MVC 회귀 테스트이다.
+- `java/com/losmos/hrsnsauto/discovery/MetaInstagramClientTest.java`: 외부 network 없이 URL, Bearer header, response parsing, error redaction을 검증한다.
+- `java/com/losmos/hrsnsauto/discovery/DiscoveryHashtagServiceTest.java`: hashtag normalization, duplicate, enable 상태를 검증한다.
+- `java/com/losmos/hrsnsauto/discovery/DiscoveryPersistenceTest.java`: PostgreSQL에서 V4 seed, media idempotency, source association과 review 상태를 검증한다.
+- `java/com/losmos/hrsnsauto/discovery/DiscoveryControllerTest.java`: `/discovery` page와 form/action route를 검증한다.
 
 ## prompts/
 

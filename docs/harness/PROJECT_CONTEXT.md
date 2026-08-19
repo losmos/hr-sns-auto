@@ -15,10 +15,12 @@
 - 2026-08-16에 범용 하네스를 새 프로젝트용으로 초기화했고, 2026-08-17에 첫 요구사항 분석·공식 Instagram API 가능성 조사와 사용자 Q1~Q8 결정 반영을 수행했다.
 - 2026-08-17에 Spring Boot 애플리케이션 skeleton과 PostgreSQL baseline을 확인하고 첫 Candidate → Evidence → Eligibility thin vertical slice를 구현했다.
 - 2026-08-17에 최초 후보 발굴은 외부 directory보다 Instagram-native signal을 우선한다는 방향을 확정하고, 공식 hashtag media author identity capability를 실제 응답으로 확인하기 위한 독립 Python probe를 추가했다.
+- 2026-08-19에 연결된 Facebook Page와 Instagram Creator 계정으로 live probe를 완료했다. Hashtag lookup과 recent media는 성공했지만 hashtag media의 작성자 identity는 공식 응답에서 얻지 못했고, 외부 Business Discovery도 현재 app 권한에서 차단됨을 확인했다.
+- 2026-08-19에 hashtag media를 Candidate로 바로 만들지 않고 permalink를 운영자가 검토하는 Instagram Discovery Inbox vertical slice를 구현했다.
 
 ## 목표
 
-- 현재 우선순위는 정식 제품 구조 확장보다 Instagram-native hashtag capability의 live 검증과 기존 Candidate 수동 입력·evidence·deterministic eligibility thin slice의 실제 사용 검증이다.
+- 현재 우선순위는 Instagram Discovery Inbox를 실제 Meta 설정으로 운영 검증한 뒤 `Discovery item → 운영자 author username 입력 → Candidate 연결` vertical slice를 구현하는 것이다.
 - Discovery가 생성하는 raw 후보는 후속 eligibility 검토 전의 lead이다. Instagram 활동성과 의료계 네트워킹 가능성을 우선하며 의료직군 false positive를 일정 범위 허용한다.
 - 매일 모든 필수 eligibility 검증을 통과한 `ELIGIBLE` 신규 Instagram 후보를 운영자가 검토할 수 있도록 최대 15명 제시한다. 15명은 quota가 아니다.
 - 실제 의사·약사 여부, 한의 계열 여부, 모발이식 관련 여부, follower 10,000 미만 여부, 최근 활동 여부를 독립적으로 판정하고 사람이 확인할 근거를 남긴다.
@@ -43,6 +45,8 @@
 - API capability, permission, rate limit은 구현 전에 고정 API version과 실제 계정 조건으로 재검증한다.
 - 공식 Instagram API 가능 범위를 probe로 먼저 확인하며, 불가능하다는 실제 결과가 나오기 전에 browser automation이나 비공식 수집 경로를 추가하지 않는다.
 - Meta Business Discovery와 특정 Search API는 MVP 필수 dependency로 두지 않는다.
+- Instagram Professional/Personal account type만으로 후보를 제외하지 않는다. 공식 API에서 stable Meta identity를 얻지 못해도 향후 내부 Candidate ID와 운영자가 확인한 username/history를 기준으로 관리하고, Meta ID나 IGSID는 얻을 수 있을 때 추가 연결한다.
+- Meta Graph API version, 연결 Instagram User ID, access token은 각각 `META_GRAPH_API_VERSION`, `META_IG_USER_ID`, `META_ACCESS_TOKEN` 환경변수에서만 받는다. token은 query parameter, source, DB, 로그, 문서, UI에 기록하지 않는다.
 - 확정 기술 스택은 Java 21, Spring Boot 4.1.0, Spring MVC, Thymeleaf, Spring Data JPA, PostgreSQL 18.4, Flyway, Docker Compose, Maven Wrapper이다.
 - local thin slice에는 Spring Security와 로그인을 구현하지 않는다. 외부 네트워크 배포 또는 실제 운영 전에 named operator 인증과 권한을 반드시 결정하고 구현해야 한다.
 
@@ -57,10 +61,15 @@
 - baseline에서 `./mvnw test`, PostgreSQL health, Spring Boot 연결, Flyway migration, JPA 초기화 성공이 확인됐다.
 - 사용자의 실제 개발 환경에서 V3 기준 `./mvnw test` 37개 전체 통과, `./mvnw package` 성공, Flyway schema version 3과 `success = true`가 확인됐다.
 - Candidate와 CandidateEvidence 영속성, deterministic EligibilityPolicy, 수동 입력·목록·상세 Thymeleaf UI가 첫 thin vertical slice로 구현됐다.
-- 석지웅 원장 Instagram account type, Facebook Page 연결 여부, Meta App 준비 상태는 현재 알 수 없다.
+- Facebook Page와 Instagram Creator 계정의 연결이 live 환경에서 정상 확인됐다.
+- 사용자 live 검증 당시 Graph API version은 `v26.0`이었으나 현재 version을 코드에서 추측하거나 고정하지 않는다.
+- 연결된 자기 Professional account에서 `id`, `username`, `name`, `followers_count`, `media_count` 조회가 성공했다. 실제 account ID와 access token은 source와 문서에 기록하지 않는다.
 - 2026-08-17 기준 Business Discovery는 이미 알고 있는 username의 공개 Business·Creator metadata와 일부 media를 조회하는 검증 기능이며 조건 기반 account search가 아니다.
-- 2026-08-17 기준 공식 API는 hashtagged media 탐색을 지원하지만, target username·owner 반환 여부는 확인하지 못해 후보 계정 discovery 수단으로 확정하지 않았다.
-- `scripts/instagram_native_discovery_probe.py`는 versioned hashtag lookup, baseline recent media, direct `username`·`owner`, media follow-up `username`·`owner`를 독립적으로 호출하고 실제 API response만으로 capability와 후보를 판정한다. 2026-08-17 현재 live credential이 없어 author identity capability 자체는 아직 실행 확인되지 않았다.
+- Live probe에서 `HASHTAG_LOOKUP`과 `RECENT_MEDIA`가 성공했고 실제 recent media 27건을 얻은 실행이 있었다. 확인된 제품 사용 가능 field는 media `id`, `caption`, `media_type`, `permalink`, `timestamp`이다.
+- Hashtag recent media의 `username`·`owner` 직접 요청은 unsupported field 계열 오류였고, media ID follow-up 조회는 permission/object access 계열 오류였다. 따라서 현재 공식 경로의 hashtag media에서 author username이나 owner를 production이 자동 식별한다고 가정하지 않는다.
+- 외부 username Business Discovery는 현재 app에서 User Access Token과 Page Access Token 모두 `(#10) Application does not have permission for this action`으로 실패했다. 일반 Consumer/Personal account를 임의 username으로 공식 API에서 enrichment할 수 있다고 가정하지 않는다.
+- `scripts/instagram_native_discovery_probe.py`는 versioned hashtag lookup, baseline recent media, direct `username`·`owner`, media follow-up `username`·`owner`를 독립적으로 호출하고 실제 API response만으로 capability를 판정한다.
+- Flyway V4와 `discovery` package에 hashtag 설정, Meta Graph client, idempotent recent media 수집, 다중 hashtag association, `NEW`·`OPENED`·`DISMISSED` 검토 상태, Spring MVC/Thymeleaf Discovery Inbox가 구현됐다.
 - 2026-08-17 기준 공식 API는 타 계정 게시물에 새 댓글 작성, 게시물 좋아요, 계정 follow, 선제 cold DM을 지원하지 않는다.
 - 2026-08-17 기준 Messaging API는 상대의 선행 메시지가 필요하며, commenter private reply도 자사 media에 상대가 댓글을 남긴 경우에 한정된다.
 - 위 API 사실은 시간에 따라 변경될 수 있으므로 구현 또는 외부 실행 범위 변경 전에 공식 문서를 다시 확인해야 한다.
@@ -80,7 +89,11 @@
 - `DEC-20260817-outreach-sequencing`: 후보당 하루 신규 outbound action은 최대 하나이다. 실제 content interaction을 먼저 검토하고 DM은 다른 시점의 별도 action·별도 approval로 다룬다.
 - `DEC-20260817-cooldown-suppression`: cold DM 무응답이면 같은 목적으로 재발송하지 않고 동일 post comment는 한 번만 허용한다. 후보 단위 cooldown 기본값은 30일이며 거절·연락 중단 요청·차단은 permanent suppression이다. 변경은 새 `PolicyVersion`으로 관리한다.
 - `DEC-20260817-browser-automation-mvp-exclusion`: Playwright·Selenium 기반 Instagram browser action automation은 MVP와 현재 구현 계획에서 제외한다. 영구 금지는 아니며 향후 별도 조사 없이 추가하지 않는다.
-- `DEC-20260817-meta-read-integration-optional`: 발신 계정·Page·Meta App 상태를 알 수 없으므로 Meta Business Discovery는 MVP blocker나 필수 기능이 아니다. 향후 prerequisites 확인 후 read-only validation/enrichment spike로만 검토한다.
+- `DEC-20260817-meta-read-integration-optional`: Meta Business Discovery는 MVP blocker나 필수 기능이 아니다. 연결 Creator account와 Page는 확인됐지만 현재 app의 User token·Page token 모두 외부 username 조회가 `#10` permission failure이므로, 향후 permission과 대상 account 조건이 맞을 때 read-only optional enrichment로만 검토한다.
+- `DEC-20260819-semi-manual-instagram-discovery-inbox`: 공식 hashtag lookup과 recent media를 media discovery source로 사용하되 author identity를 추론하지 않는다. hashtag media → 실제 permalink → 운영자가 author를 확인하는 반자동 Inbox를 사용하며 Discovery item 자체는 Candidate가 아니다.
+- `DEC-20260819-candidate-identity-without-meta-id`: Professional/Personal 여부와 관계없이 사람이 확인한 일반 Instagram account도 제품 대상에서 제외하지 않는다. stable Meta ID가 없는 후보는 향후 내부 Candidate ID와 username/history로 관리하고 stronger Meta identity는 얻을 수 있을 때 연결한다.
+- `DEC-20260819-discovery-inbox-v1-boundary`: 첫 Discovery Inbox는 활성 hashtag별 첫 page 최대 25개를 운영자의 수동 sync로만 가져온다. media ID로 idempotent upsert하고 다중 hashtag source를 보존하며 caption은 최대 500자 excerpt만 저장한다. scheduler, pagination, raw response 저장, media binary 저장, author 추론, Candidate 연결은 포함하지 않는다.
+- `DEC-20260819-meta-credential-boundary`: Meta access token, API version, IG User ID는 환경변수에서만 받고 version과 ID를 production source에 하드코딩하지 않는다. token은 Bearer header에만 사용하고 query, DB, 로그, 문서, UI에 노출하지 않는다.
 - `DEC-20260817-public-data-minimization`: username, permalink, 구조화 사실, 판정 evidence, 필요한 최소 excerpt, 관찰 시점을 중심으로 저장하고 Instagram 원본 media를 기본 보관하지 않는다. 외부 AI provider 전달도 생성 목적의 최소 범위로 제한한다.
 - `DEC-20260817-task-prompts-versioned`: secret·민감 정보를 제외한 `prompts/tasks/*.md`는 작업 의도와 재현성을 위한 프로젝트 기록으로 기본 Git commit 대상이다.
 - `DEC-20260817-application-stack`: Java 21과 Spring Boot 4.1.0 기반 Spring MVC/Thymeleaf 애플리케이션, Spring Data JPA, PostgreSQL 18.4, Flyway, Docker Compose, Maven Wrapper를 현재 기술 스택으로 사용한다.
@@ -95,8 +108,8 @@
 - `P1 Investigation`: 공개 profile·content의 구체 보유·삭제 기간과 실제 AI provider의 학습·보유·subprocessor 조건을 정해야 한다.
 - `P1 Investigation`: 특정 Search API를 사용하려면 공식 이용조건, 가격, 신규 이용 가능성, query quality와 저장 제한을 비교해야 한다.
 - `P2 Non-blocking`: 90일 초과 비활성 후보를 낮은 ranking의 `ELIGIBLE`로 유지할지 `REVIEW_REQUIRED`로 보낼지 선택해야 한다.
-- 석지웅 원장 account type, Facebook Page 연결, Meta App 준비 상태는 미확인이다. 이는 manual-first MVP blocker는 아니지만 live Instagram-native Meta probe의 prerequisite이다.
-- `P1 Investigation`: 현재 version의 공식 hashtag endpoint·permission과 hashtagged media 또는 follow-up media가 author `username`·`owner`를 실제 반환하는지는 유효한 Meta credential로 live probe해야 한다.
+- `P1 Investigation`: Discovery item에서 운영자가 확인한 author username을 입력하고 기존 Candidate에 연결하거나 새 Candidate로 만드는 identity·중복 처리 흐름을 설계해야 한다.
+- `P1 Investigation`: Meta ID 또는 IGSID를 나중에 얻었을 때 내부 Candidate identity와 안전하게 병합하는 규칙, username history의 유효기간과 충돌 처리를 정해야 한다.
 - 현재 상세 설계 문서 완료를 막는 blocker는 없다.
 
 ## 참고 산출물
@@ -110,10 +123,11 @@
 
 ## 다음 작업 기준
 
-- 공식 Meta prerequisites를 준비해 Instagram-native discovery probe를 실행하고 author identity coverage와 unique candidate 수를 먼저 확인한다. 결과 전에는 production Discovery 구조를 추가하지 않는다.
+- 실제 환경에서 `META_ACCESS_TOKEN`, `META_GRAPH_API_VERSION`, `META_IG_USER_ID`를 process 환경변수로만 설정해 Discovery Inbox manual sync와 V4 migration을 검증한다.
+- 다음 vertical slice는 `Discovery item → 운영자가 author username 입력 → Candidate 연결`이며 username 자동 추론, Business Discovery 필수화, Candidate identity 전체 재설계는 포함하지 않는다.
 - 첫 thin vertical slice는 실제 운영자 샘플로 입력 편의성, evidence 판정 사유의 이해 가능성, 후속 eligibility false positive·false negative를 계속 검증한다.
 - 검증에서 확인된 문제만 다음 작은 구현 범위로 정하고, 기존 상세 roadmap의 후속 기능을 한꺼번에 확장하지 않는다.
-- Meta read-only probe scaffold와 synthetic 검증은 prerequisites 없이 유지할 수 있지만 live Phase 1~4 실행에는 Professional Account, 연결 Page, Meta App, permission, token이 필요하다.
+- Meta read-only probe와 production client의 synthetic 검증은 credential 없이 유지한다. live sync에는 연결 Professional Account, Page, Meta App permission, 현재 version, IG User ID, token이 필요하다.
 - 모발이식 hard-exclude, evidence 방향 상충·불충분 review, evidence 부족 fail-closed, follower 경계값은 golden fixture를 유지한다.
 - 긴 조사 전문은 이 문서에 누적하지 않고 관련 `agent_outputs/` 경로를 연결한다.
 - 작업 종료 시 `docs/harness/HANDOFF.md`를 갱신한다.

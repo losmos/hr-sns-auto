@@ -2,124 +2,120 @@
 
 ## 마지막 갱신일
 
-- 2026-08-17 03:40:58 KST
+- 2026-08-19 22:58:45 KST
 
 # 중단기 작업 기억
 
 ## 이번 범위
 
-- production Discovery 구현 전에 공식 Meta Instagram API의 hashtagged media author identity capability를 실제 응답으로 확인할 독립 probe를 추가했다.
-- Python standard library만 사용하며 Spring service, repository, DB table, scheduler, provider abstraction은 추가하지 않았다.
-- Instagram-native signal을 최초 discovery에서 우선하고 strict profession evidence와 기존 EligibilityPolicy는 후속 eligibility/review gate로 유지한다는 최신 사용자 방향을 source of truth에 반영했다.
+- 첫 실사용 가능한 Instagram Discovery Inbox vertical slice를 구현했다.
+- 공식 Meta Graph API의 hashtag lookup과 recent media 첫 page를 운영자 수동 sync로 가져오며 hashtag당 최대 25개로 제한한다.
+- Discovery item은 아직 Candidate가 아니다. 작성자 username 입력, Candidate 생성·연결, username history와 stable Meta identity는 다음 vertical slice로 남겼다.
+- Candidate domain은 수정하지 않았고 후보 목록에 Discovery Inbox 진입 링크만 추가했다.
 
-## Probe 현재 상태
+## 사용자 live Meta 검증 결과
 
-- 실행 파일은 `scripts/instagram_native_discovery_probe.py`이다.
-- synthetic test는 `scripts/test_instagram_native_discovery_probe.py`이며 외부 network에 의존하지 않는다.
-- 사용법과 판정 기준은 `docs/spikes/instagram_native_discovery.md`에 기록했다.
-- version은 `META_GRAPH_API_VERSION=vXX.X`로 반드시 입력하며 코드가 최신 version을 추측하지 않는다.
-- `META_IG_USER_ID`가 없으면 연결 Page metadata의 `instagram_business_account` ID를 탐색한다. 여러 account가 있으면 자동 선택하지 않는다.
-- 기본 hashtag는 `의사스타그램`, `약사스타그램`, `피부과` 세 개이며 기본 recent-media limit은 25, follow-up media는 3개, candidate summary는 15개이다.
+- Facebook Page와 Instagram Creator 계정 연결이 정상 확인됐다.
+- 사용자 검증 시점 Graph API version은 `v26.0`이었다. production 코드는 version을 추측하거나 하드코딩하지 않는다.
+- 자기 Professional account의 `id`, `username`, `name`, `followers_count`, `media_count` 조회가 성공했다.
+- `HASHTAG_LOOKUP`과 `RECENT_MEDIA`가 성공했고 실제 recent media 27건을 얻은 실행이 있었다.
+- Hashtag recent media에서 제품에 사용할 수 있다고 확인한 field는 `id`, `caption`, `media_type`, `permalink`, `timestamp`이다.
+- `username`·`owner` 직접 field 요청은 unsupported field 계열 오류였고 media ID follow-up은 permission/object access 계열 오류였다.
+- 현재 공식 경로에서 hashtag media 작성자 username을 자동 식별한다고 가정하지 않는다.
+- 외부 username Business Discovery는 User Access Token과 Page Access Token 모두 현재 app에서 `(#10) Application does not have permission for this action`으로 실패했다.
+- Business Discovery는 Candidate 등록의 필수 dependency가 아니라 optional enrichment이다.
+- 특정 IG User ID와 access token은 source, DB, 로그, 문서에 기록하지 않았다.
 
-## Capability와 판정
+## 구현 구조
 
-- `HASHTAG_LOOKUP`, `RECENT_MEDIA`, `MEDIA_USERNAME`, `MEDIA_OWNER`, `FOLLOWUP_MEDIA_USERNAME`, `FOLLOWUP_MEDIA_OWNER`를 각각 독립 request로 분리한다.
-- 각 capability는 `SUPPORTED`, `UNSUPPORTED`, `AUTH_BLOCKED`, `UNKNOWN` 중 하나와 HTTP status, sanitized Graph error를 기록한다.
-- baseline metadata field가 unsupported이면 `id`만으로 한 번 재시도해 field 거부를 `recent_media` edge 거부로 오판하지 않는다.
-- candidate username은 실제 API response의 명시적 `username` field에서만 수집한다. caption, permalink, shortcode, URL parsing을 사용하지 않는다.
-- username은 case-insensitive dedupe하며 최대 15개만 summary와 JSON report에 표시한다.
+- Flyway `V4__create_instagram_discovery_inbox.sql`이 hashtag, item, item-hashtag association을 만든다.
+- 기본 hashtag `의사스타그램`, `약사스타그램`, `피부과`를 모두 활성 상태로 seed한다.
+- Hashtag 입력은 trim, leading `#` 제거, `Locale.ROOT` 소문자 정규화를 수행한다. 애플리케이션 검사와 DB normalized unique 제약을 함께 사용한다.
+- Media는 Instagram media ID로 upsert한다. 재수집 시 duplicate row를 만들지 않고 `lastSeenAt`, metadata, source association만 갱신하며 기존 review 상태를 유지한다.
+- Caption은 Unicode code point 기준 최대 500자 excerpt만 저장한다. raw Graph response와 Instagram media binary는 저장하지 않는다.
+- 같은 media가 여러 hashtag에서 발견되면 item row 하나와 여러 association으로 보존한다.
+- Review 상태는 `NEW`, `OPENED`, `DISMISSED`만 사용한다. redirect endpoint로 원문을 열 때 `NEW → OPENED`를 기록하고, `DISMISSED`는 링크 재열기로 되돌리지 않는다.
+- 한 hashtag Graph 요청 실패는 sanitized 실패 결과로 기록하고 다른 hashtag의 정상 observation은 유지한다. DB 제약 위반은 전체 transaction을 rollback해 무결성을 우선한다.
 
-## 공식 endpoint 확인 상태
+## Meta client와 보안
 
-- 2026-08-17 Meta 공식 Postman 자료에서 Facebook Login 방식의 Professional Account 대상, 연결 Page prerequisite, hashtagged media capability, `graph.facebook.com` 사용을 확인했다.
-- 이번 작업에서는 Meta 세부 hashtag reference page를 직접 열어 현재 endpoint와 field 목록을 끝까지 검증하지 못했다.
-- 널리 사용되는 `/ig_hashtag_search`, `/{hashtag-id}/recent_media`, `/{media-id}` path는 `GraphUrlBuilder`에 격리했다.
-- live official endpoint verification required 상태이며, 실제 versioned Graph HTTP response를 source of truth로 사용해야 한다.
-
-## Security와 출력
-
-- access token은 `Authorization: Bearer` header에만 넣고 query parameter로 만들지 않는다.
-- token, Authorization header, paging cursor는 output 전에 redaction한다.
-- Page access token field, raw response, caption, permalink를 report에 저장하지 않는다.
-- 기본 JSON report는 git ignored `agent_outputs/run_logs/`에 mode `0600`으로 저장한다.
-- `.gitignore`에 Python bytecode와 `__pycache__/` 제외 규칙을 추가했다.
+- 환경변수 `META_ACCESS_TOKEN`, `META_GRAPH_API_VERSION`, `META_IG_USER_ID`를 application property에 연결했다.
+- credential이 없거나 version 형식이 잘못돼도 애플리케이션은 기동할 수 있고, sync 시점에만 안전한 설정 오류를 표시한다.
+- token은 `Authorization: Bearer` header에만 넣고 query parameter에 넣지 않는다.
+- HTTP status와 Meta error `code`, `type`, `message`만 운영자 오류에 남긴다. token, raw payload, trace field, paging cursor는 저장하거나 UI에 노출하지 않는다.
+- 첫 page만 읽고 response의 paging cursor를 따라가지 않는다.
+- permalink는 Instagram HTTPS host만 허용하며 scraping, browser automation, username parsing, Business Discovery를 호출하지 않는다.
 
 # 직전 작업 기억
 
-## PROJECT_CONTEXT 반영 여부
+## MetaInstagramClient Spring bean 수정
 
-- 반영했다.
-- `DEC-20260817-instagram-native-discovery-first`를 추가해 Instagram-native 최초 discovery, 외부 directory 비필수, raw discovery false positive 일부 허용, SNS 활동성·의료 네트워킹 가치 우선, strict evidence의 후속 gate 역할, 공식 API 우선 spike를 기록했다.
-- 기존 Instagram 무단 scraping 금지, browser automation MVP 제외, EligibilityPolicy 결정은 유지했다.
+- `MetaInstagramClient`에 production constructor와 package-private synthetic test constructor가 함께 있지만 주입 대상 constructor가 표시되지 않아 Spring Framework 7.0.8이 기본 constructor를 찾다가 bean 생성을 실패했다.
+- `MetaInstagramProperties`를 받는 production constructor에만 `@Autowired`를 명시했다. 의미 없는 no-arg constructor는 추가하지 않았고 기존 synthetic transport seam은 유지했다.
+- Meta credential은 여전히 bean 생성 시 검증하지 않는다. 빈 설정으로 Spring bean을 만든 뒤 실제 sync 진입점의 `validateConfiguration()`에서 환경변수 이름만 포함한 안전한 설정 오류를 반환한다.
 
-## 사용자 제공 실제 개발 환경 검증 사실
+## 새 route와 UI
 
-- V3 기준 `./mvnw test`는 37개 전체 통과, failures 0, errors 0, skipped 0이다.
-- V3 기준 `./mvnw package`는 `BUILD SUCCESS`이다.
-- Flyway schema version은 3이며 `success = true`가 확인됐다.
-- 이는 사용자의 실제 개발 환경 결과이며 이번 Codex sandbox 결과와 구분한다.
+- `GET /discovery`: hashtag 설정, 상태 count, filter, 최신 게시물 inbox를 표시한다.
+- `POST /discovery/hashtags`: hashtag를 추가한다.
+- `POST /discovery/hashtags/{id}/enable`, `/disable`: history 삭제 없이 상태를 전환한다.
+- `POST /discovery/sync`: 활성 hashtag를 수동 sync하고 hashtag별 성공·실패 summary를 flash로 표시한다.
+- `GET /discovery/items/{id}/open`: `OPENED`를 기록한 뒤 저장된 Instagram permalink로 redirect한다.
+- `POST /discovery/items/{id}/dismiss`: `DISMISSED`로 전환한다.
+- 전체·`NEW`·`OPENED`·`DISMISSED` filter와 각 상태 count를 제공하며 전체 보기에서는 `NEW`를 먼저, 같은 상태에서는 publishedAt 최신순으로 정렬한다.
 
-## Live Meta 실행 상태
+## 테스트 추가
 
-- Codex 환경의 `META_ACCESS_TOKEN`, `META_GRAPH_API_VERSION`, `META_IG_USER_ID`, `DISCOVERY_HASHTAGS`는 모두 unset이었다.
-- live Graph API request는 0건이며 feasibility는 `NOT_RUN`이다.
-- credential 부재를 API 실패나 `NOT_FEASIBLE_WITH_CURRENT_OFFICIAL_PATH`로 판정하지 않았다.
-- `/tmp/instagram_discovery_probe_not_run.json`으로 `NOT_RUN`, exit code 2, request count 0, mode `0600`을 확인했다.
-
-## 이번 작업 delta
-
-- `scripts/instagram_native_discovery_probe.py`: preflight, 6개 capability, error classification, explicit username extraction, dedupe, human/JSON summary를 추가했다.
-- `scripts/test_instagram_native_discovery_probe.py`: synthetic redaction, Bearer header, URL builder, classification, baseline fallback, identity parsing, dedupe, end-to-end feasible 판정을 추가했다.
-- `docs/spikes/instagram_native_discovery.md`: 공식 근거, endpoint 재검증 한계, prerequisites, 실행법, 판정, security를 기록했다.
-- `docs/harness/PROJECT_CONTEXT.md`: 최신 discovery 방향과 사용자 제공 V3 검증 사실을 반영했다.
-- `docs/harness/DIRECTORY_MAP.md`: 새 `docs/spikes/`와 `scripts/` 역할을 반영했다.
-- `.gitignore`: Python runtime bytecode를 제외했다.
-- production Java domain과 Candidate/Eligibility 구현은 수정하지 않았다.
+- Discovery Inbox 신규 테스트는 19개이다.
+- Meta synthetic test에 빈 credential로 실제 Spring bean을 생성하고 검증을 사용 시점까지 미루는 constructor regression test를 추가했다.
+- Meta synthetic test는 versioned URL, query, Bearer header, token query 배제, lookup/recent parsing, `+0000` timestamp, malformed response, Instagram permalink validation, Graph error field 제한, token redaction, config 누락을 검증한다.
+- Hashtag service test는 normalization, case-insensitive duplicate 방지, 빈 값 거부, disable·reenable을 검증한다.
+- PostgreSQL persistence test는 V4 기본 hashtag, 반복 media idempotency, `lastSeenAt`, caption 500자, 다중 source association, review 상태, hashtag별 partial API failure를 검증한다.
+- MVC test는 page rendering, hashtag add·enable·disable, manual sync summary, 안전한 config 오류, open redirect, dismiss를 검증한다.
 
 ## 검증 상태
 
-- `python3 scripts/instagram_native_discovery_probe.py --help`: 성공했다.
-- `python3 -m py_compile ...`: 성공했다.
-- `python3 -m unittest -v scripts.test_instagram_native_discovery_probe`: synthetic test 16개가 모두 통과했다.
-- credentials 제거 상태의 probe: `NOT_RUN`, exit 2, HTTP request 0건, JSON mode `0600`을 확인했다.
-- `docker compose up -d postgres`, `docker compose ps`: `/var/run/docker.sock` 권한 거부로 실패했다.
-- `./mvnw test`: 37개 중 30개 통과, failures 0, PostgreSQL 연결이 필요한 7개가 errors로 실패했다.
-- `./mvnw package`: 동일한 PostgreSQL 연결 errors 7로 실패했다.
-- `./mvnw -Dtest=CandidateEvidenceTest,EligibilityPolicyTest,CandidateServiceTest,CandidateControllerTest test`: DB 비의존 30개가 모두 통과했다.
+- `docker compose up -d postgres`: Docker socket 권한 거부로 실행하지 못했다.
+- `docker compose ps`: 같은 Docker socket 권한 거부로 health를 확인하지 못했다.
+- constructor regression test는 수정 전 `No default constructor found`를 재현했고 수정 후 `MetaInstagramClientTest` 6개가 모두 통과했다.
+- `./mvnw -Dtest=MetaInstagramClientTest,DiscoveryHashtagServiceTest,DiscoveryControllerTest,CandidateEvidenceTest,EligibilityPolicyTest,CandidateServiceTest,CandidateControllerTest test`: DB 비의존 46개가 모두 통과했다.
+- `./mvnw test`: 총 56개 중 failures 0, PostgreSQL 연결이 필요한 기존 7개와 신규 3개가 sandbox의 localhost TCP 차단(`SocketException: Operation not permitted`)으로 errors로 끝났다.
+- `./mvnw package`: test 단계에서 동일한 PostgreSQL 연결 errors 10개로 실패했다.
 - `./mvnw -DskipTests package`: 실행 가능한 Spring Boot JAR 생성에 성공했다.
 - `git diff --check`: 통과했다.
-- `git status --short`, `git diff --stat`, `git diff`: 확인했으며 작업 전 미추적 task prompt 외에 예상한 source·문서 변경만 있다.
+- 사용자 환경에서 PostgreSQL을 사용할 수 있으므로 전체 test와 package 재검증이 남았다.
+- 실제 credential이 이 workspace에 없으므로 production Java client로 live Meta 호출은 수행하지 않았다.
 
 ## 변경 파일
 
-- `.gitignore`
-- `docs/harness/PROJECT_CONTEXT.md`
-- `docs/harness/HANDOFF.md`
-- `docs/harness/DIRECTORY_MAP.md`
-- `docs/spikes/instagram_native_discovery.md`
-- `scripts/instagram_native_discovery_probe.py`
-- `scripts/test_instagram_native_discovery_probe.py`
+- `src/main/java/com/losmos/hrsnsauto/discovery/`: hashtag·item domain, repositories, Meta client/config, sync service, MVC controller와 form/result model을 추가했다.
+- `src/main/resources/db/migration/V4__create_instagram_discovery_inbox.sql`: Discovery schema와 기본 hashtag를 추가했다.
+- `src/main/resources/templates/discovery/index.html`: Discovery Inbox UI를 추가했다.
+- `src/main/resources/static/css/app.css`: 기존 UI 스타일을 확장했다.
+- `src/main/resources/templates/candidates/list.html`: Discovery Inbox 진입 링크를 추가했다.
+- `src/main/resources/application.properties`: 세 Meta 환경변수 mapping을 추가했다.
+- `src/test/java/com/losmos/hrsnsauto/discovery/`: synthetic client, service, persistence, MVC 테스트를 추가했다.
+- `src/test/java/com/losmos/hrsnsauto/HrSnsAutoApplicationTests.java`: 세 Meta 설정을 명시적으로 비운 상태에서 full context를 검증하도록 고정했다.
+- `docs/harness/PROJECT_CONTEXT.md`, `docs/harness/HANDOFF.md`, `docs/harness/DIRECTORY_MAP.md`: live 검증 사실, 제품 결정, 구현 구조와 다음 작업을 반영했다.
 
-## 생성 산출물
+## 작업 전 파일 보존
 
-- 실제 account data를 포함한 committed fixture나 문서는 만들지 않았다.
-- `NOT_RUN` JSON은 `/tmp`에만 만들었다.
-- clarification request는 만들지 않았다.
-- 작업 시작 전 존재한 미추적 `prompts/tasks/spike_instagram_native_discovery.md`는 수정하지 않았다.
+- 작업 시작 전 존재한 미추적 `prompts/tasks/implement_discovery_inbox_vertical_slice.md`는 수정하지 않았다.
+- clarification request는 만들지 않았다. 이번 요청을 막는 P0 blocker는 발견되지 않았다.
 
 ## 다음 추천 작업 상세
 
-1. Meta app, 연결 Facebook Page, Business 또는 Creator Instagram account, 현재 version의 permission·feature·access level, 유효 token을 준비한다.
-2. 현재 Meta 공식 hashtag reference에서 endpoint와 permission을 다시 대조한다.
-3. token을 shell prompt로 입력한 뒤 `META_GRAPH_API_VERSION`, 가능하면 `META_IG_USER_ID`, `DISCOVERY_HASHTAGS`를 설정하고 probe를 실행한다.
-4. ignored JSON report에서 6개 capability, identity coverage, unique candidate 수, Graph error를 검토한다.
-5. live 결과가 `FEASIBLE`일 때만 production Discovery 설계를 별도 작업으로 시작한다. 불가능하거나 제한적이면 그 결과를 기록하고 scraping·private API·browser automation을 자동 추가하지 않는다.
+1. 사용자 환경에서 PostgreSQL을 시작하고 전체 56개 테스트와 V4 migration, credential 없는 `contextLoads()`, `./mvnw package`를 검증한다.
+2. 실제 credential을 process 환경변수로만 설정해 `/discovery`에서 기본 hashtag와 추가 hashtag의 manual sync를 확인한다.
+3. 실제 item 재sync가 duplicate를 만들지 않고 hashtag association과 `lastSeenAt`을 갱신하는지 확인한다.
+4. 다음 vertical slice로 `Discovery item → 운영자가 author username 입력 → Candidate 연결`을 구현한다.
+5. 다음 slice에서도 caption·permalink에서 username을 파싱하지 않고 운영자 확인값을 source로 사용한다.
 
 ## 이전 추천 작업과의 관계
 
-- 최신 사용자의 Instagram-native discovery feasibility spike 요청을 직전 Handoff의 운영자 sample 확인보다 우선했다.
-- V3 전체 DB 검증 미확인은 사용자가 제공한 실제 개발 환경의 37/37, package 성공, Flyway V3 결과로 해소됐다.
-- 운영자 sample을 통한 evidence 입력·상충 사유 검증은 미수행 추천 작업으로 남긴다.
+- 이전 Handoff의 live probe 추천 작업은 사용자의 실제 환경 검증으로 완료됐다.
+- 이전의 `NOT_RUN`, author identity 미검증, hashtag feasibility 미확정 상태는 더 이상 유효하지 않아 사용자 live 결과로 교체했다.
+- 기존 Candidate sample evidence 입력·상충 사유 운영 검증은 이번 최신 Discovery Inbox 요청보다 우선하지 않아 미수행 상태로 남긴다.
 
 ## 사용 에이전트
 
@@ -127,7 +123,7 @@
 
 ## 주의할 점
 
-- 현재 feasibility는 공식 경로가 불가능하다는 뜻이 아니라 credential이 없어 live 실행하지 않은 `NOT_RUN`이다.
-- standard hashtag path는 code에 격리됐지만 현재 공식 reference와 live 응답으로 재확인해야 한다.
-- live username은 process output과 ignored run log에만 두고 source, fixture, 문서에 복사하지 않는다.
+- `v26.0`은 사용자 live 검증 당시 version일 뿐 production 기본값이 아니다.
+- Hashtag media의 author identity가 없으므로 Discovery item을 Candidate로 자동 생성하지 않는다.
+- 일반 Consumer/Personal account도 제품 대상에서 제외하지 않지만 공식 API enrichment 가능성을 가정하지 않는다.
 - local thin slice에 인증이 없으므로 외부 network에 노출하지 않는다.
