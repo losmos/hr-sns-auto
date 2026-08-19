@@ -24,6 +24,49 @@
     <p class="flash" th:if="${message}" th:text="${message}"></p>
     <p class="flash error" th:if="${error}" th:text="${error}"></p>
 
+    <section class="panel browser-controls" th:attr="data-enabled=${browserAutomationEnabled}">
+        <div class="section-heading">
+            <div>
+                <h2>브라우저 보강: <span th:text="${browserAutomationEnabled ? '활성' : '비활성'}"></span></h2>
+                <p class="muted">공개 author/profile 정보만 읽으며 로그인·challenge는 자동 우회하지 않는다.</p>
+            </div>
+            <div class="actions" th:if="${browserAutomationEnabled}">
+                <form th:action="@{/discovery/browser/session}" method="post">
+                    <button type="submit" class="secondary">Instagram 브라우저 열기 / 로그인 확인</button>
+                </form>
+                <form th:action="@{/discovery/browser-enrichment/new}" method="post">
+                    <button type="submit" th:text="|NEW ${browserBatchSize}건 브라우저 정보 보강|"></button>
+                </form>
+            </div>
+        </div>
+        <p class="security-note" th:if="${browserAutomationEnabled}">
+            로그인은 열린 Chromium에서 직접 수행한다. 앱은 Instagram ID/PW를 받지 않으며 session profile은 git에 포함하지 않는다.
+        </p>
+        <p class="security-note" th:unless="${browserAutomationEnabled}">
+            사용하려면 <code>INSTAGRAM_BROWSER_AUTOMATION_ENABLED=true</code>로 실행한다. API Discovery는 이 설정과 무관하게 동작한다.
+        </p>
+    </section>
+
+    <section class="panel" th:if="${browserBatchResult}">
+        <h2>마지막 browser batch 결과</h2>
+        <p class="sync-summary"
+           th:text="|요청 상한 ${browserBatchResult.requestedCount}건 · 처리 ${browserBatchResult.processedCount}건 · 성공 ${browserBatchResult.successCount}건 · 부분 ${browserBatchResult.partialCount}건 · 실패 ${browserBatchResult.failedCount}건|"></p>
+        <p class="flash error" th:if="${browserBatchResult.stoppedForOperatorAction}">
+            로그인 또는 사용자 조치가 필요해 남은 batch를 중단함
+        </p>
+        <div class="sync-result-list" th:unless="${#lists.isEmpty(browserBatchResult.itemResults)}">
+            <div class="sync-result" th:each="result : ${browserBatchResult.itemResults}"
+                 th:attr="data-success=${result.completedWithScreeningData()}">
+                <strong th:text="|item #${result.itemId}|"></strong>
+                <span th:text="${result.status}"></span>
+                <span th:if="${result.errorSummary}" th:text="${result.errorSummary}"></span>
+            </div>
+        </div>
+        <p class="empty" th:if="${#lists.isEmpty(browserBatchResult.itemResults)}">
+            browser observation이 없는 NEW item이 없다.
+        </p>
+    </section>
+
     <section class="panel" th:if="${syncResult}">
         <h2>마지막 sync 결과</h2>
         <p class="sync-summary"
@@ -109,12 +152,58 @@
                       th:text="|#${hashtag.keyword}|"></span>
             </div>
 
+            <section class="browser-observation" th:if="${item.browserObservation != null}"
+                     th:with="observation=${item.browserObservation}">
+                <div class="browser-observation-heading">
+                    <h3>브라우저 선별 정보</h3>
+                    <span class="status browser-status" th:attr="data-status=${observation.status}"
+                          th:text="${observation.status}"></span>
+                    <time class="muted" th:datetime="${observation.observedAt}"
+                          th:text="${observation.observedAt}"></time>
+                </div>
+
+                <dl class="observation-grid">
+                    <div><dt>username</dt><dd th:text="${observation.authorUsername ?: '확인 불가'}"></dd></div>
+                    <div><dt>display name</dt><dd th:text="${observation.authorDisplayName ?: '확인 불가'}"></dd></div>
+                    <div><dt>followers</dt><dd th:text="${observation.followerCount ?: '확인 불가'}"></dd></div>
+                    <div><dt>following</dt><dd th:text="${observation.followingCount ?: '확인 불가'}"></dd></div>
+                    <div><dt>posts</dt><dd th:text="${observation.postCount ?: '확인 불가'}"></dd></div>
+                    <div><dt>verified</dt><dd
+                            th:text="${observation.verified == null ? '확인 불가' : (observation.verified ? '인증됨' : '인증 표시 없음')}"></dd></div>
+                    <div><dt>account</dt><dd
+                            th:text="${observation.privateAccount == null ? '확인 불가' : (observation.privateAccount ? '비공개' : '공개')}"></dd></div>
+                    <div><dt>profile</dt><dd>
+                        <a th:if="${observation.profileUrl}" th:href="${observation.profileUrl}"
+                           target="_blank" rel="noopener noreferrer">프로필 열기</a>
+                        <span th:unless="${observation.profileUrl}">확인 불가</span>
+                    </dd></div>
+                </dl>
+
+                <p class="biography" th:if="${observation.biographyExcerpt}"
+                   th:text="${observation.biographyExcerpt}"></p>
+                <div class="post-metrics"
+                     th:if="${observation.postLikeCount != null or observation.postCommentCount != null or observation.postViewCount != null}">
+                    <span th:if="${observation.postLikeCount != null}"
+                          th:text="|좋아요 ${observation.postLikeCount}|"></span>
+                    <span th:if="${observation.postCommentCount != null}"
+                          th:text="|댓글 ${observation.postCommentCount}|"></span>
+                    <span th:if="${observation.postViewCount != null}"
+                          th:text="|조회/재생 ${observation.postViewCount}|"></span>
+                </div>
+                <p class="observation-error" th:if="${observation.errorSummary}"
+                   th:text="|${observation.errorCode}: ${observation.errorSummary}|"></p>
+            </section>
+
             <div class="actions">
                 <a class="button" th:href="@{/discovery/items/{id}/open(id=${item.id})}"
                    target="_blank" rel="noopener noreferrer">Instagram에서 열기</a>
                 <form th:if="${item.reviewStatus.name() != 'DISMISSED'}"
                       th:action="@{/discovery/items/{id}/dismiss(id=${item.id})}" method="post">
                     <button type="submit" class="secondary">관심 없음</button>
+                </form>
+                <form th:if="${browserAutomationEnabled}"
+                      th:action="@{/discovery/items/{id}/browser-enrichment(id=${item.id})}" method="post">
+                    <button type="submit" class="secondary">브라우저 정보 가져오기</button>
                 </form>
             </div>
         </article>

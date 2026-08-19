@@ -21,9 +21,12 @@ import jakarta.validation.Valid;
 public class DiscoveryController {
 
 	private final DiscoveryService discoveryService;
+	private final InstagramBrowserEnrichmentService browserEnrichmentService;
 
-	public DiscoveryController(DiscoveryService discoveryService) {
+	public DiscoveryController(DiscoveryService discoveryService,
+			InstagramBrowserEnrichmentService browserEnrichmentService) {
 		this.discoveryService = discoveryService;
+		this.browserEnrichmentService = browserEnrichmentService;
 	}
 
 	@ModelAttribute("reviewStatuses")
@@ -102,10 +105,59 @@ public class DiscoveryController {
 		return "redirect:/discovery";
 	}
 
+	@PostMapping("/browser/session")
+	public String prepareBrowserSession(RedirectAttributes redirectAttributes) {
+		try {
+			InstagramBrowserSessionResult result = browserEnrichmentService.prepareSession();
+			redirectAttributes.addFlashAttribute(
+					result.isOperatorMessage() ? "message" : "error",
+					result.message());
+		}
+		catch (InstagramBrowserOperationException exception) {
+			redirectAttributes.addFlashAttribute("error", exception.getMessage());
+		}
+		return "redirect:/discovery";
+	}
+
+	@PostMapping("/items/{itemId}/browser-enrichment")
+	public String enrichItem(@PathVariable Long itemId, RedirectAttributes redirectAttributes) {
+		try {
+			BrowserEnrichmentItemResult result = browserEnrichmentService.enrichItem(itemId);
+			if (result.completedWithScreeningData()) {
+				String outcome = result.status() == DiscoveryBrowserObservationStatus.SUCCESS
+						? "완료함"
+						: "일부 공개 정보로 완료함";
+				redirectAttributes.addFlashAttribute("message", "브라우저 정보 보강을 " + outcome);
+			}
+			else {
+				redirectAttributes.addFlashAttribute("error", result.errorSummary());
+			}
+		}
+		catch (InstagramBrowserOperationException exception) {
+			redirectAttributes.addFlashAttribute("error", exception.getMessage());
+		}
+		return "redirect:/discovery";
+	}
+
+	@PostMapping("/browser-enrichment/new")
+	public String enrichNewBatch(RedirectAttributes redirectAttributes) {
+		try {
+			BrowserEnrichmentBatchResult result = browserEnrichmentService.enrichNewBatch();
+			redirectAttributes.addFlashAttribute("browserBatchResult", result);
+			redirectAttributes.addFlashAttribute("message", "NEW item 브라우저 정보 보강을 마침");
+		}
+		catch (InstagramBrowserOperationException exception) {
+			redirectAttributes.addFlashAttribute("error", exception.getMessage());
+		}
+		return "redirect:/discovery";
+	}
+
 	private void populateIndex(DiscoveryReviewStatus status, Model model) {
 		model.addAttribute("hashtags", discoveryService.findAllHashtags());
 		model.addAttribute("items", discoveryService.findItems(status));
 		model.addAttribute("counts", discoveryService.getInboxCounts());
 		model.addAttribute("selectedStatus", status == null ? "ALL" : status.name());
+		model.addAttribute("browserAutomationEnabled", browserEnrichmentService.isEnabled());
+		model.addAttribute("browserBatchSize", browserEnrichmentService.getDisplayBatchSize());
 	}
 }

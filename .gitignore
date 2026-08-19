@@ -23,3 +23,6 @@ __pycache__/
 # Java / Maven
 target/
 *.class
+
+# Local browser profiles can contain Instagram cookies and local storage.
+.local/

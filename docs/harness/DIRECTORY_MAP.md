@@ -55,7 +55,7 @@
 │   │   │   └── discovery/
 │   │   └── resources/
 │   │       ├── application.properties
-│   │       ├── db/migration/V1__...sql ~ V4__...sql
+│   │       ├── db/migration/V1__...sql ~ V5__...sql
 │   │       ├── static/css/app.css
 │   │       └── templates/
 │   │           ├── candidates/
@@ -106,14 +106,20 @@
 - `com.losmos.hrsnsauto.discovery`: Discovery hashtag 설정, Instagram media inbox, 다중 hashtag association, review 상태, Meta Graph client, 수동 sync service와 `/discovery` MVC 흐름을 구현한다.
 - `MetaInstagramClient`: `META_ACCESS_TOKEN`, `META_GRAPH_API_VERSION`, `META_IG_USER_ID` 설정으로 hashtag lookup과 recent media 첫 page만 호출한다. Bearer header와 sanitized error 경계를 담당한다.
 - `DiscoveryService`: hashtag normalization·enable 상태, media ID upsert, source association, `NEW`·`OPENED`·`DISMISSED` 전이를 담당한다.
+- `InstagramBrowserClient`: Playwright persistent Chromium context 하나와 page 하나를 재사용하며 navigation timeout, login/challenge, browser binary/profile 오류 경계를 담당한다.
+- `InstagramBrowserExtractor`: post author profile link와 공개 profile/post metadata selector·fallback을 격리한다. generated CSS class와 caption username 추측에 의존하지 않는다.
+- `InstagramBrowserEnrichmentService`: operator-triggered session 준비, 단건, observation 없는 최신 `NEW` item 순차 batch와 단일 실행 lock을 담당한다.
+- `DiscoveryBrowserObservation`: Discovery item별 최신 browser screening observation과 `SUCCESS`·`PARTIAL`·`LOGIN_REQUIRED`·`ACTION_REQUIRED`·`FAILED` 상태를 저장한다.
+- `InstagramMetricParser`: 한국어·영문 compact visible count를 명시된 HALF_UP 규칙으로 nonnegative 정수화한다.
 
 ## src/main/resources/
 
-- `application.properties`: PostgreSQL/Flyway 설정과 optional Meta 환경변수 mapping을 정의한다.
+- `application.properties`: PostgreSQL/Flyway, optional Meta 환경변수와 기본 disabled인 Instagram browser 환경변수 mapping을 정의한다.
 - `db/migration/V1__baseline.sql` ~ `V3__add_hair_transplant_evidence_finding.sql`: 기존 Candidate schema migration이다.
 - `db/migration/V4__create_instagram_discovery_inbox.sql`: Discovery hashtag, media item, item-hashtag association schema와 기본 hashtag 3개를 추가한다.
+- `db/migration/V5__create_discovery_browser_observations.sql`: item별 최신 browser observation, nonnegative count, 상태·오류 제약을 추가한다.
 - `templates/candidates/`: Candidate 목록·등록·상세 Thymeleaf 화면이다.
-- `templates/discovery/index.html`: hashtag 관리, manual sync 결과, 상태 count·filter, media review action을 제공하는 Discovery Inbox 화면이다.
+- `templates/discovery/index.html`: hashtag 관리, API sync, browser 상태·session·단건·순차 batch, screening observation과 media review action을 제공하는 Discovery Inbox 화면이다.
 - `static/css/app.css`: Candidate와 Discovery 화면이 공유하는 CSS이다.
 
 ## src/test/
@@ -122,7 +128,12 @@
 - `java/com/losmos/hrsnsauto/discovery/MetaInstagramClientTest.java`: 외부 network 없이 URL, Bearer header, response parsing, error redaction을 검증한다.
 - `java/com/losmos/hrsnsauto/discovery/DiscoveryHashtagServiceTest.java`: hashtag normalization, duplicate, enable 상태를 검증한다.
 - `java/com/losmos/hrsnsauto/discovery/DiscoveryPersistenceTest.java`: PostgreSQL에서 V4 seed, media idempotency, source association과 review 상태를 검증한다.
-- `java/com/losmos/hrsnsauto/discovery/DiscoveryControllerTest.java`: `/discovery` page와 form/action route를 검증한다.
+- `java/com/losmos/hrsnsauto/discovery/DiscoveryControllerTest.java`: `/discovery` page와 API/browser form/action route를 검증한다.
+- `java/com/losmos/hrsnsauto/discovery/InstagramMetricParserTest.java`: plain/grouped/한국어·영문 compact count, HALF_UP, 불확실값 거부를 검증한다.
+- `java/com/losmos/hrsnsauto/discovery/InstagramBrowserExtractorTest.java`: profile URL·username 검증과 author link/caption/non-profile path filtering을 검증한다.
+- `java/com/losmos/hrsnsauto/discovery/InstagramBrowserEnrichmentServiceTest.java`: disabled 경계, 순차 batch 독립 저장과 login-required 중단을 검증한다.
+- `java/com/losmos/hrsnsauto/discovery/DiscoveryBrowserObservationTest.java`: partial/failure field mapping, negative count 거부를 검증한다.
+- `java/com/losmos/hrsnsauto/discovery/InstagramBrowserErrorSanitizerTest.java`: credential, session directory와 multiline page detail 정제를 검증한다.
 
 ## prompts/
 

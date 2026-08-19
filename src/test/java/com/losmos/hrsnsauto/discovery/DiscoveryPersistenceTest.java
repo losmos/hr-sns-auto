@@ -28,6 +28,9 @@ class DiscoveryPersistenceTest {
 	@Autowired
 	private DiscoveryItemRepository itemRepository;
 
+	@Autowired
+	private DiscoveryBrowserObservationRepository observationRepository;
+
 	@PersistenceContext
 	private EntityManager entityManager;
 
@@ -108,6 +111,50 @@ class DiscoveryPersistenceTest {
 				.extracting(HashtagSyncResult::keyword, HashtagSyncResult::errorMessage)
 				.containsExactly("약사스타그램", "Meta Graph API 오류 (HTTP 400, code 10): 권한 부족");
 		assertThat(itemRepository.count()).isEqualTo(2);
+	}
+
+	@Test
+	void persistsOneLatestBrowserObservationPerDiscoveryItem() {
+		DiscoveryHashtag hashtag = hashtagRepository.findAllByEnabledTrueOrderByIdAsc().getFirst();
+		DiscoveryItem item = itemRepository.saveAndFlush(new DiscoveryItem(
+				media("browser-1", "browser-observation"),
+				hashtag,
+				Instant.parse("2026-08-19T01:00:00Z")));
+		InstagramBrowserEnrichmentResult firstResult = InstagramBrowserEnrichmentResult.success(
+				new InstagramPostBrowserSnapshot(
+						"doctor.one", "https://www.instagram.com/doctor.one/", 1_234L, 25L, null),
+				new InstagramProfileBrowserSnapshot(
+						"닥터 원", 4_800L, 320L, 523L, "피부 건강 정보", false, false));
+		DiscoveryBrowserObservation observation = new DiscoveryBrowserObservation(item);
+		observation.replaceWith(firstResult, Instant.parse("2026-08-19T02:00:00Z"));
+		observationRepository.saveAndFlush(observation);
+		entityManager.clear();
+
+		DiscoveryItem loaded = itemRepository.findById(item.getId()).orElseThrow();
+		DiscoveryBrowserObservation loadedObservation = observationRepository
+				.findOneByDiscoveryItemId(loaded.getId())
+				.orElseThrow();
+		assertThat(loadedObservation.getAuthorUsername()).isEqualTo("doctor.one");
+		assertThat(loadedObservation.getFollowerCount()).isEqualTo(4_800L);
+		assertThat(loadedObservation.getPostLikeCount()).isEqualTo(1_234L);
+		assertThat(loadedObservation.getStatus()).isEqualTo(DiscoveryBrowserObservationStatus.SUCCESS);
+		assertThat(observationRepository.count()).isEqualTo(1);
+
+		InstagramBrowserEnrichmentResult latestResult = InstagramBrowserEnrichmentResult.failure(
+				DiscoveryBrowserObservationStatus.LOGIN_REQUIRED,
+				InstagramBrowserErrorCode.LOGIN_REQUIRED,
+				"Instagram 로그인이 필요함");
+		loadedObservation.replaceWith(latestResult, Instant.parse("2026-08-19T03:00:00Z"));
+		observationRepository.saveAndFlush(loadedObservation);
+		entityManager.clear();
+
+		DiscoveryBrowserObservation latest = observationRepository
+				.findOneByDiscoveryItemId(item.getId())
+				.orElseThrow();
+		assertThat(observationRepository.count()).isEqualTo(1);
+		assertThat(latest.getStatus()).isEqualTo(DiscoveryBrowserObservationStatus.LOGIN_REQUIRED);
+		assertThat(latest.getObservedAt()).isEqualTo(Instant.parse("2026-08-19T03:00:00Z"));
+		assertThat(latest.getAuthorUsername()).isNull();
 	}
 
 	private DiscoveryService service(MetaInstagramClient client, Instant instant) {

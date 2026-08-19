@@ -17,6 +17,7 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.JoinTable;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.OrderBy;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 
 @Entity
@@ -61,6 +62,9 @@ public class DiscoveryItem {
 			inverseJoinColumns = @JoinColumn(name = "discovery_hashtag_id"))
 	@OrderBy("keyword ASC")
 	private Set<DiscoveryHashtag> hashtags = new LinkedHashSet<>();
+
+	@OneToOne(mappedBy = "discoveryItem", fetch = FetchType.LAZY)
+	private DiscoveryBrowserObservation browserObservation;
 
 	protected DiscoveryItem() {
 	}
@@ -146,5 +150,9 @@ public class DiscoveryItem {
 
 	public Set<DiscoveryHashtag> getHashtags() {
 		return Collections.unmodifiableSet(hashtags);
+	}
+
+	public DiscoveryBrowserObservation getBrowserObservation() {
+		return browserObservation;
 	}
 }
