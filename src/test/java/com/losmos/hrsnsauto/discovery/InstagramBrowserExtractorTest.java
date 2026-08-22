@@ -8,7 +8,10 @@ import static org.mockito.Mockito.when;
 
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.IdentityHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -29,6 +32,171 @@ class InstagramBrowserExtractorTest {
 
 	private final InstagramBrowserExtractor extractor = new InstagramBrowserExtractor(
 			new InstagramMetricParser());
+
+	@Test
+	void extractsAuthorFromExistingMainArticleRoot() throws Exception {
+		InstagramBrowserExtractor.PostExtractionResult result = extractionFromSyntheticPage(
+				"https://www.instagram.com/p/Article123/",
+				"""
+				<main>
+				  <article>
+				    <a href="/article.doctor/"><img alt="" /></a>
+				    <a href="/article.doctor/">article.doctor</a>
+				  </article>
+				</main>
+				""");
+
+		assertThat(result.snapshot()).isPresent();
+		assertThat(result.snapshot().orElseThrow().authorUsername()).isEqualTo("article.doctor");
+		assertThat(result.diagnostic().postRootType())
+				.isEqualTo(InstagramBrowserExtractor.PostRootType.ARTICLE);
+	}
+
+	@Test
+	void extractsAuthorFromPostMainWhenArticleIsAbsent() throws Exception {
+		InstagramBrowserExtractor.PostExtractionResult result = extractionFromSyntheticPage(
+				"https://www.instagram.com/reel/Main123/?utm_source=safe#ignored",
+				"""
+				<main>
+				  <section>
+				    <a href="/doctor.one/"><img alt="" /></a>
+				    <a href="/doctor.one/">doctor.one</a>
+				    <div>post content</div>
+				  </section>
+				</main>
+				""");
+
+		assertThat(result.snapshot()).isPresent();
+		assertThat(result.snapshot().orElseThrow().authorUsername()).isEqualTo("doctor.one");
+		assertThat(result.diagnostic().postRootType())
+				.isEqualTo(InstagramBrowserExtractor.PostRootType.MAIN_FALLBACK);
+	}
+
+	@Test
+	void mainFallbackPrefersRepeatedAuthorEvidenceOverEarlierUnrelatedNavigation() throws Exception {
+		InstagramBrowserExtractor.PostExtractionResult result = extractionFromSyntheticPage(
+				"https://www.instagram.com/p/MainEvidence123/",
+				"""
+				<main>
+				  <a href="/navigation.user/">navigation.user</a>
+				  <section>
+				    <a href="/actual.doctor/" aria-label="actual.doctor profile"><img alt="" /></a>
+				    <a href="/actual.doctor/">actual.doctor</a>
+				  </section>
+				</main>
+				""");
+
+		assertThat(result.snapshot()).isPresent();
+		assertThat(result.snapshot().orElseThrow().authorUsername()).isEqualTo("actual.doctor");
+	}
+
+	@Test
+	void mainFallbackKeepsRepeatedAuthorAheadOfLaterCommenterAndMention() throws Exception {
+		InstagramBrowserExtractor.PostExtractionResult result = extractionFromSyntheticPage(
+				"https://www.instagram.com/p/MainComment123/",
+				"""
+				<main>
+				  <a href="/author.doctor/"><img alt="" /></a>
+				  <a href="/author.doctor/">author.doctor</a>
+				  <div>caption <a href="/mention.user/">@mention.user</a></div>
+				  <div>comment <a href="/other.user/">other.user</a></div>
+				</main>
+				""");
+
+		assertThat(result.snapshot()).isPresent();
+		assertThat(result.snapshot().orElseThrow().authorUsername()).isEqualTo("author.doctor");
+	}
+
+	@Test
+	void mainFallbackDoesNotInferAuthorFromCaptionMentionText() throws Exception {
+		InstagramBrowserExtractor.PostExtractionResult result = extractionFromSyntheticPage(
+				"https://www.instagram.com/p/MentionOnly123/",
+				"""
+				<main>
+				  <div>caption <a href="/mention.only/">@mention.only</a></div>
+				  <div>repeated caption <a href="/mention.only/">@mention.only</a></div>
+				</main>
+				""");
+
+		assertThat(result.snapshot()).isEmpty();
+		assertThat(result.diagnostic().candidateUsernames()).containsExactly("mention.only");
+	}
+
+	@Test
+	void doesNotUseMainFallbackOnHomeExploreOrExternalFinalUrls() throws Exception {
+		String body = """
+				<main>
+				  <a href="/wrong.user/"><img alt="" /></a>
+				  <a href="/wrong.user/">wrong.user</a>
+				</main>
+				""";
+
+		InstagramBrowserExtractor.PostExtractionResult home = extractionFromSyntheticPage(
+				"https://www.instagram.com/?next=%2Fp%2FSecret%2F", body);
+		InstagramBrowserExtractor.PostExtractionResult explore = extractionFromSyntheticPage(
+				"https://www.instagram.com/explore/?token=must-not-appear", body);
+		InstagramBrowserExtractor.PostExtractionResult external = extractionFromSyntheticPage(
+				"https://example.com/p/Fake/?sessionid=must-not-appear", body);
+
+		assertThat(home.snapshot()).isEmpty();
+		assertThat(home.diagnostic().pageClassification())
+				.isEqualTo(InstagramBrowserExtractor.PageClassification.HOME);
+		assertThat(home.diagnostic().postRootType())
+				.isEqualTo(InstagramBrowserExtractor.PostRootType.NONE);
+		assertThat(home.diagnostic().visibleRootLinkCount()).isZero();
+
+		assertThat(explore.snapshot()).isEmpty();
+		assertThat(explore.diagnostic().pageClassification())
+				.isEqualTo(InstagramBrowserExtractor.PageClassification.OTHER_INSTAGRAM);
+		assertThat(explore.diagnostic().postRootType())
+				.isEqualTo(InstagramBrowserExtractor.PostRootType.NONE);
+
+		assertThat(external.snapshot()).isEmpty();
+		assertThat(external.diagnostic().pageClassification())
+				.isEqualTo(InstagramBrowserExtractor.PageClassification.EXTERNAL);
+		assertThat(external.diagnostic().finalPath()).isEqualTo("-");
+	}
+
+	@Test
+	void safelyFailsWhenPostFinalUrlHasNoMainOrArticle() throws Exception {
+		InstagramBrowserExtractor.PostExtractionResult result = extractionFromSyntheticPage(
+				"https://instagram.com/tv/NoRoot123/",
+				"<div>post shell without a supported root</div>");
+
+		assertThat(result.snapshot()).isEmpty();
+		assertThat(result.diagnostic().pageClassification())
+				.isEqualTo(InstagramBrowserExtractor.PageClassification.POST);
+		assertThat(result.diagnostic().postRootType())
+				.isEqualTo(InstagramBrowserExtractor.PostRootType.NONE);
+	}
+
+	@Test
+	void diagnosticContainsOnlySafePathAndCompactCounts() throws Exception {
+		InstagramBrowserExtractor.PostExtractionResult result = extractionFromSyntheticPage(
+				"https://www.instagram.com/p/ABC123/?access_token=TOP_SECRET#sessionid=FRAGMENT_SECRET",
+				"""
+				<main>
+				  <a href="/candidate.one/">different label</a>
+				  <div>RAW_HTML_MARKER caption body must not appear</div>
+				</main>
+				""");
+
+		assertThat(result.snapshot()).isEmpty();
+		assertThat(result.diagnostic().compactSummary())
+				.contains(
+						"page=post",
+						"finalPath=/p/ABC123/",
+						"postRoot=main",
+						"main=1",
+						"article=0",
+						"dialog=0",
+						"rootLinks=1",
+						"profileLinks=1",
+						"candidates=candidate.one")
+				.doesNotContain(
+						"access_token", "TOP_SECRET", "sessionid", "FRAGMENT_SECRET",
+						"RAW_HTML_MARKER", "caption body", "<main>");
+	}
 
 	@Test
 	void extractsAuthorFromHeaderlessArticleWithAvatarAndUsernameLinks() throws Exception {
@@ -169,8 +337,11 @@ class InstagramBrowserExtractorTest {
 		Locator avatarLink = visibleLink("/retry.doctor/", null);
 		Locator usernameLink = visibleLink("/retry.doctor/", "retry.doctor");
 
+		when(page.url()).thenReturn("https://www.instagram.com/p/Retry123/");
 		when(page.locator("[role='dialog'] article:visible, main article:visible"))
 				.thenReturn(containers);
+		when(page.locator("main article:visible")).thenReturn(containers);
+		when(containers.count()).thenReturn(1);
 		when(containers.first()).thenReturn(article);
 		when(article.locator("a[href]:visible")).thenReturn(initialLinks);
 		when(initialLinks.first()).thenReturn(initialLink);
@@ -196,7 +367,7 @@ class InstagramBrowserExtractorTest {
 				Locator.WaitForOptions.class);
 		verify(article).waitFor(containerWait.capture());
 		assertThat(containerWait.getValue().state).isEqualTo(WaitForSelectorState.VISIBLE);
-		assertThat(containerWait.getValue().timeout).isEqualTo(4_000);
+		assertThat(containerWait.getValue().timeout).isEqualTo(1_500);
 
 		ArgumentCaptor<Locator.WaitForOptions> linkWait = ArgumentCaptor.forClass(
 				Locator.WaitForOptions.class);
@@ -209,10 +380,19 @@ class InstagramBrowserExtractorTest {
 	void limitsAuthorFailureDiagnosticToThreeValidatedUsernames() {
 		InstagramBrowserExtractor.PostExtractionDiagnostic diagnostic =
 				new InstagramBrowserExtractor.PostExtractionDiagnostic(
-						true, 30, 5, List.of("one", "two", "three", "four"));
+						InstagramBrowserExtractor.PageClassification.POST,
+						"/p/ABC123/",
+						InstagramBrowserExtractor.PostRootType.ARTICLE,
+						1,
+						1,
+						0,
+						30,
+						5,
+						List.of("one", "two", "three", "four"));
 
 		assertThat(diagnostic.compactSummary())
-				.isEqualTo("postContainer=found, articleLinks=30, profileLinks=5, candidates=one,two,three");
+				.isEqualTo("page=post, finalPath=/p/ABC123/, postRoot=article, main=1, "
+						+ "article=1, dialog=0, rootLinks=30, profileLinks=5, candidates=one,two,three");
 	}
 
 	@Test
@@ -254,15 +434,200 @@ class InstagramBrowserExtractorTest {
 				.isTrue();
 		assertThat(extractor.isInstagramPostUrl("https://instagram.com/explore/AbC123/"))
 				.isFalse();
+		assertThat(extractor.isInstagramPostUrl("https://m.instagram.com/p/AbC123/"))
+				.isFalse();
+		assertThat(extractor.isInstagramPostUrl("http://www.instagram.com/p/AbC123/"))
+				.isFalse();
+		assertThat(extractor.isInstagramPostUrl("https://www.instagram.com/p//AbC123/"))
+				.isFalse();
+		assertThat(extractor.isInstagramPostUrl("https://www.instagram.com/p/AbC123/embed/"))
+				.isFalse();
+		assertThat(extractor.isExpectedPostUrl(
+				"https://www.instagram.com/p/AbC123/?utm_source=request",
+				"https://instagram.com/p/AbC123#final-fragment"))
+				.isTrue();
+		assertThat(extractor.isExpectedPostUrl(
+				"https://www.instagram.com/p/AbC123/",
+				"https://www.instagram.com/p/Different123/"))
+				.isFalse();
+		assertThat(extractor.isExpectedPostUrl(
+				"https://www.instagram.com/p/AbC123/",
+				"https://www.instagram.com/reel/AbC123/"))
+				.isFalse();
+
+		assertThat(extractor.pageLocation("https://www.instagram.com/accounts/login/?next=%2Fp%2Fx%2F")
+				.classification()).isEqualTo(InstagramBrowserExtractor.PageClassification.LOGIN);
+		assertThat(extractor.pageLocation("https://www.instagram.com/challenge/123/?token=secret")
+				.classification()).isEqualTo(InstagramBrowserExtractor.PageClassification.ACTION_REQUIRED);
+	}
+
+	private InstagramBrowserExtractor.PostExtractionResult extractionFromSyntheticPage(
+			String finalUrl, String body) throws Exception {
+		Document document = parseDocument(body);
+		Page page = mock(Page.class);
+		when(page.url()).thenReturn(finalUrl);
+
+		List<Element> dialogArticles = articlesWithin(document, "role", "dialog");
+		List<Element> mainArticles = articlesWithin(document, "tag", "main");
+		List<Element> semanticArticles = uniqueElements(dialogArticles, mainArticles);
+		List<Element> mainElements = elementsByTag(document, "main");
+		List<Element> roleMainElements = elementsByRole(document, "main");
+		List<Element> visibleMainElements = uniqueElements(mainElements, roleMainElements);
+		List<Element> articles = elementsByTag(document, "article");
+		List<Element> dialogs = elementsByRole(document, "dialog");
+
+		Map<Element, Locator> roots = new IdentityHashMap<>();
+		for (Element element : uniqueElements(
+				semanticArticles, visibleMainElements, articles, dialogs)) {
+			roots.put(element, rootLocator(element));
+		}
+
+		Locator semanticArticleLocator = locatorCollection(
+				uniqueElements(dialogArticles, mainArticles), roots);
+		Locator dialogArticleLocator = locatorCollection(dialogArticles, roots);
+		Locator mainArticleLocator = locatorCollection(mainArticles, roots);
+		Locator mainElementLocator = locatorCollection(mainElements, roots);
+		Locator roleMainLocator = locatorCollection(roleMainElements, roots);
+		Locator visibleMainLocator = locatorCollection(visibleMainElements, roots);
+		Locator articleLocator = locatorCollection(articles, roots);
+		Locator dialogLocator = locatorCollection(dialogs, roots);
+		when(page.locator("[role='dialog'] article:visible, main article:visible"))
+				.thenReturn(semanticArticleLocator);
+		when(page.locator("[role='dialog'] article:visible"))
+				.thenReturn(dialogArticleLocator);
+		when(page.locator("main article:visible"))
+				.thenReturn(mainArticleLocator);
+		when(page.locator("main:visible"))
+				.thenReturn(mainElementLocator);
+		when(page.locator("[role='main']:visible"))
+				.thenReturn(roleMainLocator);
+		when(page.locator("main:visible, [role='main']:visible"))
+				.thenReturn(visibleMainLocator);
+		when(page.locator("article:visible"))
+				.thenReturn(articleLocator);
+		when(page.locator("[role='dialog']:visible"))
+				.thenReturn(dialogLocator);
+
+		return extractor.extractPostWithDiagnostic(page);
+	}
+
+	@SafeVarargs
+	private final List<Element> uniqueElements(List<Element>... groups) {
+		LinkedHashSet<Element> unique = new LinkedHashSet<>();
+		for (List<Element> group : groups) {
+			unique.addAll(group);
+		}
+		return List.copyOf(unique);
+	}
+
+	private Locator locatorCollection(List<Element> elements, Map<Element, Locator> roots) {
+		List<Locator> locators = elements.stream().map(roots::get).toList();
+		return locatorCollection(locators);
+	}
+
+	private Locator locatorCollection(List<Locator> locators) {
+		Locator collection = mock(Locator.class);
+		Locator empty = mock(Locator.class);
+		when(empty.count()).thenReturn(0);
+		when(empty.first()).thenReturn(empty);
+		when(collection.count()).thenReturn(locators.size());
+		when(collection.first()).thenReturn(locators.isEmpty() ? empty : locators.getFirst());
+		for (int index = 0; index < locators.size(); index++) {
+			when(collection.nth(index)).thenReturn(locators.get(index));
+		}
+		return collection;
+	}
+
+	private Locator rootLocator(Element rootElement) {
+		Locator root = mock(Locator.class);
+		when(root.count()).thenReturn(1);
+		when(root.first()).thenReturn(root);
+		when(root.nth(0)).thenReturn(root);
+		when(root.isVisible()).thenReturn(true);
+		when(root.innerText()).thenReturn(rootElement.getTextContent());
+
+		List<Locator> links = anchorLocators(rootElement, false);
+		List<Locator> semanticLinks = anchorLocators(rootElement, true);
+		Locator linkCollection = locatorCollection(links);
+		Locator visibleLinkCollection = locatorCollection(links);
+		Locator semanticLinkCollection = locatorCollection(semanticLinks);
+		when(root.locator("a[href]")).thenReturn(linkCollection);
+		when(root.locator("a[href]:visible")).thenReturn(visibleLinkCollection);
+		when(root.locator("header a[href], h1 a[href], h2 a[href]"))
+				.thenReturn(semanticLinkCollection);
+		return root;
+	}
+
+	private List<Locator> anchorLocators(Element root, boolean semanticOnly) {
+		List<Locator> locators = new ArrayList<>();
+		NodeList anchors = root.getElementsByTagName("a");
+		for (int index = 0; index < anchors.getLength(); index++) {
+			Element anchor = (Element) anchors.item(index);
+			if (semanticOnly && !hasSemanticAuthorAncestor(anchor, root)) {
+				continue;
+			}
+			Locator locator = mock(Locator.class);
+			when(locator.isVisible()).thenReturn(true);
+			when(locator.getAttribute("href")).thenReturn(attributeOrNull(anchor, "href"));
+			when(locator.getAttribute("aria-label")).thenReturn(attributeOrNull(anchor, "aria-label"));
+			when(locator.getAttribute("title")).thenReturn(attributeOrNull(anchor, "title"));
+			when(locator.innerText()).thenReturn(textOrNull(anchor));
+			locators.add(locator);
+		}
+		return locators;
+	}
+
+	private List<Element> elementsByTag(Document document, String tagName) {
+		List<Element> elements = new ArrayList<>();
+		NodeList nodes = document.getElementsByTagName(tagName);
+		for (int index = 0; index < nodes.getLength(); index++) {
+			elements.add((Element) nodes.item(index));
+		}
+		return elements;
+	}
+
+	private List<Element> elementsByRole(Document document, String role) {
+		List<Element> elements = new ArrayList<>();
+		NodeList nodes = document.getElementsByTagName("*");
+		for (int index = 0; index < nodes.getLength(); index++) {
+			Element element = (Element) nodes.item(index);
+			if (role.equalsIgnoreCase(element.getAttribute("role"))) {
+				elements.add(element);
+			}
+		}
+		return elements;
+	}
+
+	private List<Element> articlesWithin(Document document, String ancestorKind, String expected) {
+		List<Element> articles = new ArrayList<>();
+		for (Element article : elementsByTag(document, "article")) {
+			for (Node ancestor = article.getParentNode(); ancestor != null; ancestor = ancestor.getParentNode()) {
+				if (!(ancestor instanceof Element element)) {
+					continue;
+				}
+				boolean matches = ancestorKind.equals("tag")
+						? expected.equalsIgnoreCase(element.getTagName())
+						: expected.equalsIgnoreCase(element.getAttribute(ancestorKind));
+				if (matches) {
+					articles.add(article);
+					break;
+				}
+			}
+		}
+		return articles;
+	}
+
+	private Document parseDocument(String body) throws Exception {
+		DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+		factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+		factory.setExpandEntityReferences(false);
+		return factory.newDocumentBuilder().parse(new InputSource(
+				new StringReader("<html><body>" + body + "</body></html>")));
 	}
 
 	private Optional<InstagramBrowserExtractor.InstagramProfileLink> authorFromSyntheticHtml(
 			String body) throws Exception {
-		DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-		factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
-		factory.setExpandEntityReferences(false);
-		Document document = factory.newDocumentBuilder().parse(new InputSource(
-				new StringReader("<html><body>" + body + "</body></html>")));
+		Document document = parseDocument(body);
 
 		Element article = firstSupportedArticle(document);
 		if (article == null) {

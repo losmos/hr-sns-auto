@@ -75,7 +75,7 @@
 - 외부 username Business Discovery는 현재 app에서 User Access Token과 Page Access Token 모두 `(#10) Application does not have permission for this action`으로 실패했다. 일반 Consumer/Personal account를 임의 username으로 공식 API에서 enrichment할 수 있다고 가정하지 않는다.
 - `scripts/instagram_native_discovery_probe.py`는 versioned hashtag lookup, baseline recent media, direct `username`·`owner`, media follow-up `username`·`owner`를 독립적으로 호출하고 실제 API response만으로 capability를 판정한다.
 - Flyway V4와 `discovery` package에 hashtag 설정, Meta Graph client, idempotent recent media 수집, 다중 hashtag association, `NEW`·`OPENED`·`DISMISSED` 검토 상태, Spring MVC/Thymeleaf Discovery Inbox가 구현됐다.
-- Microsoft Playwright Java `1.61.0`, persistent Chromium context, semantic locator/fallback extractor, localized metric parser와 단일 실행 lock이 구현됐다. 기본 browser automation은 disabled이고 headed mode이며 batch size는 기본 10, 허용 범위 1~15이다.
+- Microsoft Playwright Java `1.61.0`, persistent Chromium context, final URL/page 분류, semantic article 우선·지원 post URL 한정 main fallback extractor, localized metric parser와 단일 실행 lock이 구현됐다. 기본 browser automation은 disabled이고 headed mode이며 batch size는 기본 10, 허용 범위 1~15이다.
 - Flyway V5 `discovery_browser_observations`는 Discovery item당 최신 browser observation 1개를 저장한다. author username/display name/profile URL, follower/following/post count, biography 최대 300자 excerpt, verified/private 여부와 화면에 있을 때만 post like/comment/view count를 저장하며 raw HTML, screenshot, media binary, cookie는 저장하지 않는다.
 - Browser observation 상태는 `SUCCESS`, `PARTIAL`, `LOGIN_REQUIRED`, `ACTION_REQUIRED`, `FAILED`이다. 로그인·challenge/checkpoint는 우회하지 않고 batch를 중단하며, 다른 item의 성공 observation은 독립 transaction으로 유지한다.
 - 2026-08-17 기준 공식 API는 타 계정 게시물에 새 댓글 작성, 게시물 좋아요, 계정 follow, 선제 cold DM을 지원하지 않는다.

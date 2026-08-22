@@ -82,11 +82,30 @@ public class InstagramBrowserClient {
 			if (blocked != null) {
 				return blocked;
 			}
+
+			InstagramBrowserExtractor.PageLocation finalLocation = extractor.pageLocation(page.url());
+			if (!finalLocation.isPost()) {
+				InstagramBrowserExtractor.PostExtractionDiagnostic diagnostic =
+						extractor.extractPostWithDiagnostic(page).diagnostic();
+				return InstagramBrowserEnrichmentResult.failure(
+						DiscoveryBrowserObservationStatus.FAILED,
+						InstagramBrowserErrorCode.POST_UNAVAILABLE,
+						"Instagram 게시물 화면이 아닌 위치로 이동됨 ("
+								+ diagnostic.compactSummary() + ")");
+			}
+			if (!extractor.isExpectedPostUrl(permalink, page.url())) {
+				return InstagramBrowserEnrichmentResult.failure(
+						DiscoveryBrowserObservationStatus.FAILED,
+						InstagramBrowserErrorCode.POST_UNAVAILABLE,
+						"요청한 Instagram 게시물과 다른 게시물 화면으로 이동됨 ("
+								+ finalLocation.compactSummary() + ")");
+			}
 			if (isUnavailable(postResponse) || extractor.isUnavailable(page)) {
 				return InstagramBrowserEnrichmentResult.failure(
 						DiscoveryBrowserObservationStatus.FAILED,
 						InstagramBrowserErrorCode.POST_UNAVAILABLE,
-						"Instagram 게시물을 사용할 수 없거나 삭제됨");
+						"Instagram 게시물을 사용할 수 없거나 삭제됨 ("
+								+ finalLocation.compactSummary() + ")");
 			}
 
 			InstagramBrowserExtractor.PostExtractionResult extractedPost =

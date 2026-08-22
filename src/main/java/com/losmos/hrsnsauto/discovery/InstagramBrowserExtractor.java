@@ -24,24 +24,34 @@ import com.microsoft.playwright.options.WaitForSelectorState;
 @Component
 public class InstagramBrowserExtractor {
 
-	private static final int MAX_ARTICLE_LINKS = 30;
+	private static final int MAX_POST_ROOT_LINKS = 30;
 	private static final int MAX_EARLY_AUTHOR_LINKS = 12;
 	private static final int MAX_DIAGNOSTIC_USERNAMES = 3;
+	private static final int MAX_DIAGNOSTIC_PATH_LENGTH = 160;
 	private static final int MAX_VISIBLE_TEXT_LENGTH = 12_000;
 	private static final int POST_EXTRACTION_ATTEMPTS = 3;
-	private static final double POST_CONTAINER_WAIT_MILLIS = 4_000;
+	private static final double SEMANTIC_ARTICLE_WAIT_MILLIS = 1_500;
+	private static final double MAIN_FALLBACK_WAIT_MILLIS = 1_200;
 	private static final double AUTHOR_LINK_WAIT_MILLIS = 1_200;
 	private static final double AUTHOR_RETRY_DELAY_MILLIS = 400;
 	private static final Pattern USERNAME_PATTERN = Pattern.compile(
 			"^[A-Za-z0-9_](?:[A-Za-z0-9._]{0,28}[A-Za-z0-9_])?$");
+	private static final Pattern SUPPORTED_POST_PATH_PATTERN = Pattern.compile(
+			"^/(p|reel|tv)/([A-Za-z0-9_-]+)/?$", Pattern.CASE_INSENSITIVE);
 	private static final Set<String> NON_PROFILE_PATHS = Set.of(
 			"p", "reel", "reels", "tv", "explore", "accounts", "direct", "stories",
 			"about", "developer", "legal", "web", "api");
-	private static final Set<String> POST_PATHS = Set.of("p", "reel", "tv");
-	// generated CSS class에 의존하지 않고 현재 post 자체의 visible article만 선택한다.
-	private static final String POST_CONTAINER_SELECTOR = String.join(", ",
+	// generated CSS class에 의존하지 않고 semantic article을 먼저 짧게 기다린다.
+	private static final String SEMANTIC_ARTICLE_SELECTOR = String.join(", ",
 			"[role='dialog'] article:visible",
 			"main article:visible");
+	private static final String DIALOG_ARTICLE_SELECTOR = "[role='dialog'] article:visible";
+	private static final String MAIN_ARTICLE_SELECTOR = "main article:visible";
+	private static final String MAIN_ELEMENT_SELECTOR = "main:visible";
+	private static final String ROLE_MAIN_SELECTOR = "[role='main']:visible";
+	private static final String VISIBLE_MAIN_SELECTOR = String.join(", ",
+			MAIN_ELEMENT_SELECTOR,
+			ROLE_MAIN_SELECTOR);
 	private static final String SEMANTIC_AUTHOR_LINK_SELECTOR = String.join(", ",
 			"header a[href]",
 			"h1 a[href]",
@@ -63,33 +73,50 @@ public class InstagramBrowserExtractor {
 	}
 
 	PostExtractionResult extractPostWithDiagnostic(Page page) {
-		if (!waitForPostContainer(page)) {
-			return PostExtractionResult.notFound(PostExtractionDiagnostic.missingContainer());
+		PageLocation initialLocation = pageLocation(page.url());
+		if (!initialLocation.isPost()) {
+			return PostExtractionResult.notFound(diagnostic(
+					page, initialLocation, PostRootType.NONE, List.of()));
 		}
 
-		waitForInitialArticleLink(page);
-		PostExtractionDiagnostic latestDiagnostic = PostExtractionDiagnostic.containerWithoutLinks();
+		waitForPostRoot(page);
+		PostRoot initialRoot = selectPostRoot(page, pageLocation(page.url()));
+		if (initialRoot.isPresent()) {
+			waitForInitialRootLink(initialRoot.locator());
+		}
+
+		PostExtractionDiagnostic latestDiagnostic = diagnostic(
+				page, initialLocation, PostRootType.NONE, List.of());
 		for (int attempt = 0; attempt < POST_EXTRACTION_ATTEMPTS; attempt++) {
-			Locator article = postContainer(page);
-			if (safeCount(article) == 0) {
-				latestDiagnostic = PostExtractionDiagnostic.missingContainer();
+			PageLocation currentLocation = pageLocation(page.url());
+			PostRoot postRoot = selectPostRoot(page, currentLocation);
+			if (!postRoot.isPresent()) {
+				latestDiagnostic = diagnostic(
+						page, currentLocation, PostRootType.NONE, List.of());
 			}
 			else {
-				List<VisibleLink> articleLinks = visibleLinks(
-						article.locator("a[href]"), MAX_ARTICLE_LINKS);
-				List<VisibleLink> semanticLinks = visibleLinks(
-						article.locator(SEMANTIC_AUTHOR_LINK_SELECTOR), MAX_EARLY_AUTHOR_LINKS);
-				latestDiagnostic = diagnostic(articleLinks);
-				Optional<InstagramProfileLink> author = findAuthorCandidate(semanticLinks, articleLinks);
+				List<VisibleLink> rootLinks = visibleLinks(
+						postRoot.locator().locator("a[href]"), MAX_POST_ROOT_LINKS);
+				latestDiagnostic = diagnostic(page, currentLocation, postRoot.type(), rootLinks);
+				Optional<InstagramProfileLink> author;
+				if (postRoot.type() == PostRootType.ARTICLE) {
+					List<VisibleLink> semanticLinks = visibleLinks(
+							postRoot.locator().locator(SEMANTIC_AUTHOR_LINK_SELECTOR),
+							MAX_EARLY_AUTHOR_LINKS);
+					author = findAuthorCandidate(semanticLinks, rootLinks);
+				}
+				else {
+					author = findMainFallbackAuthorCandidate(rootLinks);
+				}
 				if (author.isPresent()) {
-					String articleText = boundedText(article);
+					String postText = boundedText(postRoot.locator());
 					return PostExtractionResult.found(
 							new InstagramPostBrowserSnapshot(
 									author.get().username(),
 									author.get().profileUrl(),
-									metricFromText(articleText, List.of("likes", "like", "좋아요")),
-									metricFromText(articleText, List.of("comments", "comment", "댓글")),
-									metricFromText(articleText,
+									metricFromText(postText, List.of("likes", "like", "좋아요")),
+									metricFromText(postText, List.of("comments", "comment", "댓글")),
+									metricFromText(postText,
 											List.of("views", "view", "plays", "play", "조회", "재생"))),
 							latestDiagnostic);
 				}
@@ -139,11 +166,12 @@ public class InstagramBrowserExtractor {
 	}
 
 	BrowserPageState pageState(Page page) {
-		String url = safeLower(page.url());
-		if (url.contains("/challenge/") || url.contains("/checkpoint/") || url.contains("/accounts/suspended/")) {
+		PageClassification classification = pageLocation(page.url()).classification();
+		if (classification == PageClassification.ACTION_REQUIRED) {
 			return BrowserPageState.ACTION_REQUIRED;
 		}
-		if (url.contains("/accounts/login/") || hasVisible(page.locator("input[name='password']"))) {
+		if (classification == PageClassification.LOGIN
+				|| hasVisible(page.locator("input[name='password']"))) {
 			return BrowserPageState.LOGIN_REQUIRED;
 		}
 		String mainText = safeLower(boundedText(page.locator("main")));
@@ -169,18 +197,53 @@ public class InstagramBrowserExtractor {
 	}
 
 	boolean isInstagramPostUrl(String value) {
+		return pageLocation(value).isPost();
+	}
+
+	boolean isExpectedPostUrl(String requestedUrl, String finalUrl) {
+		Optional<PostIdentity> requestedPost = postIdentity(requestedUrl);
+		Optional<PostIdentity> finalPost = postIdentity(finalUrl);
+		return requestedPost.isPresent()
+				&& finalPost.isPresent()
+				&& requestedPost.get().equals(finalPost.get());
+	}
+
+	PageLocation pageLocation(String value) {
 		try {
-			URI uri = URI.create(value);
-			if (!isInstagramHttpsUri(uri)) {
-				return false;
+			if (value == null || value.isBlank()) {
+				return PageLocation.external();
 			}
+			URI uri = URI.create(value.strip());
+			if (!isInstagramHttpsUri(uri)) {
+				return PageLocation.external();
+			}
+
+			String finalPath = safeFinalPath(uri);
 			String[] segments = pathSegments(uri);
-			return segments.length == 2
-					&& POST_PATHS.contains(segments[0].toLowerCase(Locale.ROOT))
-					&& !segments[1].isBlank();
+			if (segments.length == 0) {
+				return new PageLocation(PageClassification.HOME, finalPath);
+			}
+
+			String firstSegment = segments[0].toLowerCase(Locale.ROOT);
+			if (firstSegment.equals("challenge")
+					|| firstSegment.equals("checkpoint")
+					|| (firstSegment.equals("accounts")
+							&& segments.length > 1
+							&& segments[1].equalsIgnoreCase("suspended"))) {
+				return new PageLocation(PageClassification.ACTION_REQUIRED, finalPath);
+			}
+			if (firstSegment.equals("accounts")
+					&& segments.length > 1
+					&& segments[1].equalsIgnoreCase("login")) {
+				return new PageLocation(PageClassification.LOGIN, finalPath);
+			}
+			if (isSupportedPostPath(uri)) {
+				return new PageLocation(PageClassification.POST, finalPath);
+			}
+			return new PageLocation(PageClassification.OTHER_INSTAGRAM, finalPath);
 		}
 		catch (IllegalArgumentException exception) {
-			return false;
+			return PageLocation.external();
 		}
 	}
 
@@ -190,14 +253,21 @@ public class InstagramBrowserExtractor {
 
 	Optional<InstagramProfileLink> findAuthorCandidate(
 			List<VisibleLink> semanticLinks, List<VisibleLink> articleLinks) {
-		Optional<InstagramProfileLink> semanticCandidate = findTrustedCandidate(semanticLinks);
+		Optional<InstagramProfileLink> semanticCandidate = findTrustedCandidate(semanticLinks, true);
 		if (semanticCandidate.isPresent()) {
 			return semanticCandidate;
 		}
 
 		// Caption mention과 commenter가 주로 뒤에 오는 DOM 특성을 이용하되 상단 검사 범위는 작게 제한한다.
 		int endIndex = Math.min(articleLinks.size(), MAX_EARLY_AUTHOR_LINKS);
-		return findTrustedCandidate(articleLinks.subList(0, endIndex));
+		return findTrustedCandidate(articleLinks.subList(0, endIndex), true);
+	}
+
+	private Optional<InstagramProfileLink> findMainFallbackAuthorCandidate(List<VisibleLink> rootLinks) {
+		// main 전체에서는 navigation/comment 영역이 섞일 수 있으므로 초반 link만 검사한다.
+		// @mention 단일 text는 author evidence로 인정하지 않고 반복 href나 명시 label을 우선한다.
+		int endIndex = Math.min(rootLinks.size(), MAX_EARLY_AUTHOR_LINKS);
+		return findTrustedCandidate(rootLinks.subList(0, endIndex), false);
 	}
 
 	Optional<InstagramProfileLink> authorCandidate(String href, String visibleLabel) {
@@ -238,21 +308,33 @@ public class InstagramBrowserExtractor {
 		}
 	}
 
-	private boolean waitForPostContainer(Page page) {
+	private void waitForPostRoot(Page page) {
 		try {
-			postContainer(page).waitFor(new Locator.WaitForOptions()
+			page.locator(SEMANTIC_ARTICLE_SELECTOR).first().waitFor(new Locator.WaitForOptions()
 					.setState(WaitForSelectorState.VISIBLE)
-					.setTimeout(POST_CONTAINER_WAIT_MILLIS));
-			return true;
+					.setTimeout(SEMANTIC_ARTICLE_WAIT_MILLIS));
+			return;
 		}
 		catch (TimeoutError exception) {
-			return false;
+			// article 없는 상세 화면을 위해 지원 post URL에서만 main을 짧게 기다린다.
+		}
+
+		if (!pageLocation(page.url()).isPost()) {
+			return;
+		}
+		try {
+			page.locator(VISIBLE_MAIN_SELECTOR).first().waitFor(new Locator.WaitForOptions()
+					.setState(WaitForSelectorState.VISIBLE)
+					.setTimeout(MAIN_FALLBACK_WAIT_MILLIS));
+		}
+		catch (TimeoutError ignored) {
+			// Root가 아직 없더라도 아래 bounded retry가 최종 diagnostic과 안전한 실패를 만든다.
 		}
 	}
 
-	private void waitForInitialArticleLink(Page page) {
+	private void waitForInitialRootLink(Locator postRoot) {
 		try {
-			postContainer(page).locator("a[href]:visible").first().waitFor(new Locator.WaitForOptions()
+			postRoot.locator("a[href]:visible").first().waitFor(new Locator.WaitForOptions()
 					.setState(WaitForSelectorState.VISIBLE)
 					.setTimeout(AUTHOR_LINK_WAIT_MILLIS));
 		}
@@ -261,37 +343,97 @@ public class InstagramBrowserExtractor {
 		}
 	}
 
-	private Locator postContainer(Page page) {
-		return page.locator(POST_CONTAINER_SELECTOR).first();
+	private PostRoot selectPostRoot(Page page, PageLocation location) {
+		if (!location.isPost()) {
+			return PostRoot.none();
+		}
+
+		Locator dialogArticle = firstExisting(page.locator(DIALOG_ARTICLE_SELECTOR));
+		if (dialogArticle != null) {
+			return new PostRoot(PostRootType.ARTICLE, dialogArticle);
+		}
+		Locator mainArticle = firstExisting(page.locator(MAIN_ARTICLE_SELECTOR));
+		if (mainArticle != null) {
+			return new PostRoot(PostRootType.ARTICLE, mainArticle);
+		}
+		Locator main = firstExisting(page.locator(MAIN_ELEMENT_SELECTOR));
+		if (main != null) {
+			return new PostRoot(PostRootType.MAIN_FALLBACK, main);
+		}
+		Locator roleMain = firstExisting(page.locator(ROLE_MAIN_SELECTOR));
+		if (roleMain != null) {
+			return new PostRoot(PostRootType.MAIN_FALLBACK, roleMain);
+		}
+		return PostRoot.none();
 	}
 
-	private Optional<InstagramProfileLink> findTrustedCandidate(List<VisibleLink> links) {
+	private Locator firstExisting(Locator locator) {
+		if (safeCount(locator) == 0) {
+			return null;
+		}
+		return locator.first();
+	}
+
+	private Optional<InstagramProfileLink> findTrustedCandidate(
+			List<VisibleLink> links, boolean allowAtPrefixedVisibleText) {
 		Map<String, List<VisibleLink>> linksByUsername = new LinkedHashMap<>();
 		for (VisibleLink link : links) {
 			profileUsernameFromUrl(link.href()).ifPresent(username ->
 					linksByUsername.computeIfAbsent(username, ignored -> new ArrayList<>()).add(link));
 		}
 
+		// 동일 href 반복은 avatar와 username link 조합을 포착하며 단일 선행 navigation link보다 강하다.
 		for (Map.Entry<String, List<VisibleLink>> entry : linksByUsername.entrySet()) {
-			String username = entry.getKey();
-			List<VisibleLink> matchingLinks = entry.getValue();
-			// 같은 상단 profile href 반복은 text 없는 avatar와 username link 조합을 안전하게 포착한다.
-			if (matchingLinks.size() >= 2) {
-				return Optional.of(profileLink(username));
+			if (entry.getValue().size() >= 2
+					&& (allowAtPrefixedVisibleText
+							|| entry.getValue().stream().noneMatch(link ->
+									containsAtPrefixedUsername(link.innerText(), entry.getKey())))) {
+				return Optional.of(profileLink(entry.getKey()));
 			}
-			for (VisibleLink link : matchingLinks) {
-				if (containsExactLine(link.innerText(), username)) {
-					return Optional.of(profileLink(username));
+		}
+		for (Map.Entry<String, List<VisibleLink>> entry : linksByUsername.entrySet()) {
+			for (VisibleLink link : entry.getValue()) {
+				if (containsExactUsernameLabel(
+						link.innerText(), entry.getKey(), allowAtPrefixedVisibleText)) {
+					return Optional.of(profileLink(entry.getKey()));
 				}
 			}
-			for (VisibleLink link : matchingLinks) {
-				if (explicitlyNamesUsername(link.ariaLabel(), username)
-						|| explicitlyNamesUsername(link.title(), username)) {
-					return Optional.of(profileLink(username));
+		}
+		for (Map.Entry<String, List<VisibleLink>> entry : linksByUsername.entrySet()) {
+			for (VisibleLink link : entry.getValue()) {
+				if (explicitlyNamesUsername(link.ariaLabel(), entry.getKey())
+						|| explicitlyNamesUsername(link.title(), entry.getKey())) {
+					return Optional.of(profileLink(entry.getKey()));
 				}
 			}
 		}
 		return Optional.empty();
+	}
+
+	private boolean containsExactUsernameLabel(
+			String value, String username, boolean allowAtPrefix) {
+		if (value == null || username == null) {
+			return false;
+		}
+		for (String line : value.split("[\\r\\n]+")) {
+			String normalized = line.strip();
+			if (allowAtPrefix && normalized.startsWith("@")) {
+				normalized = normalized.substring(1);
+			}
+			if (normalized.equalsIgnoreCase(username)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean containsAtPrefixedUsername(String value, String username) {
+		if (value == null || username == null) {
+			return false;
+		}
+		return Arrays.stream(value.split("[\\r\\n]+"))
+				.map(String::strip)
+				.anyMatch(line -> line.equalsIgnoreCase("@" + username));
 	}
 
 	private Optional<InstagramProfileLink> trustedLabeledCandidate(VisibleLink link) {
@@ -317,10 +459,11 @@ public class InstagramBrowserExtractor {
 		return explicitUsername.matcher(value).find();
 	}
 
-	private PostExtractionDiagnostic diagnostic(List<VisibleLink> articleLinks) {
+	private PostExtractionDiagnostic diagnostic(
+			Page page, PageLocation location, PostRootType postRootType, List<VisibleLink> rootLinks) {
 		int profileLikeLinkCount = 0;
 		Set<String> candidateUsernames = new LinkedHashSet<>();
-		for (VisibleLink link : articleLinks) {
+		for (VisibleLink link : rootLinks) {
 			Optional<String> username = profileUsernameFromUrl(link.href());
 			if (username.isPresent()) {
 				profileLikeLinkCount++;
@@ -328,8 +471,13 @@ public class InstagramBrowserExtractor {
 			}
 		}
 		return new PostExtractionDiagnostic(
-				true,
-				articleLinks.size(),
+				location.classification(),
+				location.finalPath(),
+				postRootType,
+				safeCount(page.locator(VISIBLE_MAIN_SELECTOR)),
+				safeCount(page.locator("article:visible")),
+				safeCount(page.locator("[role='dialog']:visible")),
+				rootLinks.size(),
 				profileLikeLinkCount,
 				candidateUsernames.stream().limit(MAX_DIAGNOSTIC_USERNAMES).toList());
 	}
@@ -350,7 +498,7 @@ public class InstagramBrowserExtractor {
 						trimmed(anchor.getAttribute("title"))));
 			}
 			catch (PlaywrightException ignored) {
-				// 한 anchor가 DOM 재렌더링으로 사라져도 같은 article의 다음 후보를 확인한다.
+				// 한 anchor가 DOM 재렌더링으로 사라져도 같은 post root의 다음 후보를 확인한다.
 			}
 		}
 		return links;
@@ -517,6 +665,9 @@ public class InstagramBrowserExtractor {
 	}
 
 	private int safeCount(Locator locator) {
+		if (locator == null) {
+			return 0;
+		}
 		try {
 			return locator.count();
 		}
@@ -566,7 +717,46 @@ public class InstagramBrowserExtractor {
 				&& uri.getRawUserInfo() == null
 				&& (uri.getPort() == -1 || uri.getPort() == 443)
 				&& (host.equalsIgnoreCase("instagram.com")
-						|| host.toLowerCase(Locale.ROOT).endsWith(".instagram.com"));
+						|| host.equalsIgnoreCase("www.instagram.com"));
+	}
+
+	private boolean isSupportedPostPath(URI uri) {
+		String rawPath = uri.getRawPath();
+		return rawPath != null && SUPPORTED_POST_PATH_PATTERN.matcher(rawPath).matches();
+	}
+
+	private Optional<PostIdentity> postIdentity(String value) {
+		try {
+			if (value == null || value.isBlank()) {
+				return Optional.empty();
+			}
+			URI uri = URI.create(value.strip());
+			if (!isInstagramHttpsUri(uri) || !isSupportedPostPath(uri)) {
+				return Optional.empty();
+			}
+			Matcher pathMatcher = SUPPORTED_POST_PATH_PATTERN.matcher(uri.getRawPath());
+			if (!pathMatcher.matches()) {
+				return Optional.empty();
+			}
+			return Optional.of(new PostIdentity(
+					pathMatcher.group(1).toLowerCase(Locale.ROOT),
+					pathMatcher.group(2)));
+		}
+		catch (IllegalArgumentException exception) {
+			return Optional.empty();
+		}
+	}
+
+	private String safeFinalPath(URI uri) {
+		String rawPath = uri.getRawPath();
+		if (rawPath == null || rawPath.isBlank()) {
+			return "/";
+		}
+		String safePath = rawPath.replaceAll("[\\p{Cntrl}]", "");
+		if (safePath.length() <= MAX_DIAGNOSTIC_PATH_LENGTH) {
+			return safePath;
+		}
+		return safePath.substring(0, MAX_DIAGNOSTIC_PATH_LENGTH);
 	}
 
 	private String[] pathSegments(URI uri) {
@@ -622,7 +812,7 @@ public class InstagramBrowserExtractor {
 		PostExtractionResult {
 			snapshot = snapshot == null ? Optional.empty() : snapshot;
 			diagnostic = diagnostic == null
-					? PostExtractionDiagnostic.missingContainer()
+					? PostExtractionDiagnostic.empty()
 					: diagnostic;
 		}
 
@@ -637,33 +827,122 @@ public class InstagramBrowserExtractor {
 	}
 
 	record PostExtractionDiagnostic(
-			boolean postContainerFound,
-			int visibleArticleLinkCount,
+			PageClassification pageClassification,
+			String finalPath,
+			PostRootType postRootType,
+			int visibleMainCount,
+			int visibleArticleCount,
+			int visibleDialogCount,
+			int visibleRootLinkCount,
 			int profileLikeLinkCount,
 			List<String> candidateUsernames) {
 
 		PostExtractionDiagnostic {
+			pageClassification = pageClassification == null
+					? PageClassification.EXTERNAL
+					: pageClassification;
+			finalPath = finalPath == null || finalPath.isBlank() ? "-" : finalPath;
+			postRootType = postRootType == null ? PostRootType.NONE : postRootType;
 			candidateUsernames = candidateUsernames == null
 					? List.of()
 					: candidateUsernames.stream().limit(MAX_DIAGNOSTIC_USERNAMES).toList();
 		}
 
-		static PostExtractionDiagnostic missingContainer() {
-			return new PostExtractionDiagnostic(false, 0, 0, List.of());
-		}
-
-		static PostExtractionDiagnostic containerWithoutLinks() {
-			return new PostExtractionDiagnostic(true, 0, 0, List.of());
+		static PostExtractionDiagnostic empty() {
+			return new PostExtractionDiagnostic(
+					PageClassification.EXTERNAL,
+					"-",
+					PostRootType.NONE,
+					0,
+					0,
+					0,
+					0,
+					0,
+					List.of());
 		}
 
 		String compactSummary() {
 			String usernames = candidateUsernames.isEmpty()
 					? "-"
 					: String.join(",", candidateUsernames);
-			return "postContainer=" + (postContainerFound ? "found" : "missing")
-					+ ", articleLinks=" + visibleArticleLinkCount
+			return "page=" + pageClassification.diagnosticLabel()
+					+ ", finalPath=" + finalPath
+					+ ", postRoot=" + postRootType.diagnosticLabel()
+					+ ", main=" + visibleMainCount
+					+ ", article=" + visibleArticleCount
+					+ ", dialog=" + visibleDialogCount
+					+ ", rootLinks=" + visibleRootLinkCount
 					+ ", profileLinks=" + profileLikeLinkCount
 					+ ", candidates=" + usernames;
+		}
+	}
+
+	record PageLocation(PageClassification classification, String finalPath) {
+
+		PageLocation {
+			classification = classification == null ? PageClassification.EXTERNAL : classification;
+			finalPath = finalPath == null || finalPath.isBlank() ? "-" : finalPath;
+		}
+
+		static PageLocation external() {
+			return new PageLocation(PageClassification.EXTERNAL, "-");
+		}
+
+		boolean isPost() {
+			return classification == PageClassification.POST;
+		}
+
+		String compactSummary() {
+			return "page=" + classification.diagnosticLabel() + ", finalPath=" + finalPath;
+		}
+	}
+
+	private record PostRoot(PostRootType type, Locator locator) {
+
+		static PostRoot none() {
+			return new PostRoot(PostRootType.NONE, null);
+		}
+
+		boolean isPresent() {
+			return type != PostRootType.NONE && locator != null;
+		}
+	}
+
+	private record PostIdentity(String pathType, String shortcode) {
+	}
+
+	enum PostRootType {
+		ARTICLE("article"),
+		MAIN_FALLBACK("main"),
+		NONE("none");
+
+		private final String diagnosticLabel;
+
+		PostRootType(String diagnosticLabel) {
+			this.diagnosticLabel = diagnosticLabel;
+		}
+
+		String diagnosticLabel() {
+			return diagnosticLabel;
+		}
+	}
+
+	enum PageClassification {
+		POST("post"),
+		LOGIN("login"),
+		ACTION_REQUIRED("action_required"),
+		HOME("home"),
+		OTHER_INSTAGRAM("other_instagram"),
+		EXTERNAL("external");
+
+		private final String diagnosticLabel;
+
+		PageClassification(String diagnosticLabel) {
+			this.diagnosticLabel = diagnosticLabel;
+		}
+
+		String diagnosticLabel() {
+			return diagnosticLabel;
 		}
 	}
 
