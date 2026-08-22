@@ -48,6 +48,7 @@
 - Meta Business Discovery와 특정 Search API는 MVP 필수 dependency로 두지 않는다.
 - Instagram Professional/Personal account type만으로 후보를 제외하지 않는다. 공식 API에서 stable Meta identity를 얻지 못해도 향후 내부 Candidate ID와 운영자가 확인한 username/history를 기준으로 관리하고, Meta ID나 IGSID는 얻을 수 있을 때 추가 연결한다.
 - Meta Graph API version, 연결 Instagram User ID, access token은 각각 `META_GRAPH_API_VERSION`, `META_IG_USER_ID`, `META_ACCESS_TOKEN` 환경변수에서만 받는다. token은 query parameter, source, DB, 로그, 문서, UI에 기록하지 않는다.
+- Local primary launcher는 gitignored `.env.local`의 non-secret 설정만 환경변수로 변환한다. `META_ACCESS_TOKEN`은 process environment, macOS Keychain service `hr-sns-auto-meta-access-token`, hidden terminal prompt로만 받고 `.env.local`에는 저장하지 않는다.
 - Instagram username/password는 애플리케이션이 입력받거나 저장하지 않는다. Playwright persistent profile은 기본 `.local/instagram-browser-profile/`에 두고 `INSTAGRAM_BROWSER_USER_DATA_DIR`로 override할 수 있으며 cookie/local storage가 있을 수 있어 git, DB, 로그, fixture, report에 포함하지 않는다.
 - CAPTCHA, challenge, checkpoint, rate limit과 anti-bot control을 우회하지 않는다. stealth plugin, fingerprint spoofing, proxy rotation, random human-like timing을 구현하지 않는다.
 - 확정 기술 스택은 Java 21, Spring Boot 4.1.0, Spring MVC, Thymeleaf, Spring Data JPA, PostgreSQL 18.4, Flyway, Docker Compose, Maven Wrapper이다.
@@ -101,6 +102,7 @@
 - `DEC-20260819-candidate-identity-without-meta-id`: Professional/Personal 여부와 관계없이 사람이 확인한 일반 Instagram account도 제품 대상에서 제외하지 않는다. stable Meta ID가 없는 후보는 향후 내부 Candidate ID와 username/history로 관리하고 stronger Meta identity는 얻을 수 있을 때 연결한다.
 - `DEC-20260819-discovery-inbox-v1-boundary`: 첫 Discovery Inbox는 활성 hashtag별 첫 page 최대 25개를 운영자의 수동 sync로만 가져온다. media ID로 idempotent upsert하고 다중 hashtag source를 보존하며 caption은 최대 500자 excerpt만 저장한다. scheduler, pagination, raw response 저장, media binary 저장, author 추론, Candidate 연결은 포함하지 않는다.
 - `DEC-20260819-meta-credential-boundary`: Meta access token, API version, IG User ID는 환경변수에서만 받고 version과 ID를 production source에 하드코딩하지 않는다. token은 Bearer header에만 사용하고 query, DB, 로그, 문서, UI에 노출하지 않는다.
+- `DEC-20260820-local-config-secret-boundary`: local 실행은 `./scripts/run-local.sh`를 primary 경로로 사용한다. non-secret 값만 gitignored `.env.local`에 두고 애플리케이션 환경변수로 변환하며, Meta access token은 `.env.local`에 저장하지 않고 현재 process, 프로젝트 전용 macOS Keychain, hidden prompt 중 하나에서 주입한다. PostgreSQL data와 persistent browser profile은 실행 종료 시 유지한다.
 - `DEC-20260817-public-data-minimization`: username, permalink, 구조화 사실, 판정 evidence, 필요한 최소 excerpt, 관찰 시점을 중심으로 저장하고 Instagram 원본 media를 기본 보관하지 않는다. 외부 AI provider 전달도 생성 목적의 최소 범위로 제한한다.
 - `DEC-20260817-task-prompts-versioned`: secret·민감 정보를 제외한 `prompts/tasks/*.md`는 작업 의도와 재현성을 위한 프로젝트 기록으로 기본 Git commit 대상이다.
 - `DEC-20260817-application-stack`: Java 21과 Spring Boot 4.1.0 기반 Spring MVC/Thymeleaf 애플리케이션, Spring Data JPA, PostgreSQL 18.4, Flyway, Docker Compose, Maven Wrapper를 현재 기술 스택으로 사용한다.

@@ -9,6 +9,8 @@
 ├── AGENTS.md
 ├── CLAUDE.md
 ├── GEMINI.md
+├── README.md
+├── .env.local.example
 ├── agent_outputs/
 │   ├── .gitkeep
 │   ├── clarification_requests/
@@ -65,6 +67,7 @@
 │       ├── java/com/losmos/hrsnsauto/discovery/
 │       └── resources/
 └── scripts/
+    ├── run-local.sh
     ├── instagram_native_discovery_probe.py
     └── test_instagram_native_discovery_probe.py
 ```
@@ -74,6 +77,8 @@
 - `AGENTS.md`: AI Agent가 따라야 하는 공통 작업 규칙이다. 작업 시작, 모호성 처리, 문서 갱신, 검증 원칙을 정의한다.
 - `CLAUDE.md`: Claude Code가 자동으로 읽는 진입점이며, 공통 작업 규칙이 `AGENTS.md`임을 명시하는 포인터 파일이다.
 - `GEMINI.md`: Gemini CLI가 자동으로 읽는 진입점이며, 공통 작업 규칙이 `AGENTS.md`임을 명시하는 포인터 파일이다.
+- `README.md`: local 실행, 최초 설정, Meta token과 Playwright Chromium 관리 방법을 안내한다.
+- `.env.local.example`: 비밀값을 제외한 local 실행 설정 예시이다. 실제 `.env.local`은 gitignored된다.
 - `.gitignore`: git에 포함하지 않을 실행 산출물과 임시 파일 규칙을 정의한다.
 
 ## docs/harness/
@@ -97,6 +102,7 @@
 
 ## scripts/
 
+- `scripts/run-local.sh`: `.env.local`, macOS Keychain 또는 hidden prompt, Docker Compose PostgreSQL을 준비하고 Spring Boot local 실행을 시작한다.
 - `scripts/instagram_native_discovery_probe.py`: Python standard library만으로 Instagram-native candidate discovery 가능성을 live Graph API에서 확인하는 독립 probe이다.
 - `scripts/test_instagram_native_discovery_probe.py`: 외부 network 없이 probe의 URL, redaction, classification, parsing, dedupe를 확인하는 synthetic unit test이다.
 

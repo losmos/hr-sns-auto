@@ -24,5 +24,8 @@ __pycache__/
 target/
 *.class
 
+# Local non-secret development configuration.
+.env.local
+
 # Local browser profiles can contain Instagram cookies and local storage.
 .local/
