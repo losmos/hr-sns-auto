@@ -420,6 +420,54 @@ class InstagramBrowserExtractorTest {
 	}
 
 	@Test
+	void classifiesReelsRouteWithShortcodeAsPost() {
+		assertThat(extractor.pageLocation("https://www.instagram.com/reels/ABC123/")
+				.classification()).isEqualTo(InstagramBrowserExtractor.PageClassification.POST);
+	}
+
+	@Test
+	void acceptsReelsRouteWithShortcodeAsInstagramPostUrl() {
+		assertThat(extractor.isInstagramPostUrl("https://www.instagram.com/reels/ABC123/"))
+				.isTrue();
+	}
+
+	@Test
+	void treatsReelAndReelsRoutesAsTheSamePostIdentity() {
+		assertThat(extractor.isExpectedPostUrl(
+				"https://www.instagram.com/reel/ABC123/",
+				"https://www.instagram.com/reels/ABC123/"))
+				.isTrue();
+	}
+
+	@Test
+	void treatsReelsAndReelRoutesAsTheSamePostIdentity() {
+		assertThat(extractor.isExpectedPostUrl(
+				"https://www.instagram.com/reels/ABC123/",
+				"https://www.instagram.com/reel/ABC123/"))
+				.isTrue();
+	}
+
+	@Test
+	void rejectsReelRouteAliasWhenShortcodesDiffer() {
+		assertThat(extractor.isExpectedPostUrl(
+				"https://www.instagram.com/reel/ABC123/",
+				"https://www.instagram.com/reels/OTHER456/"))
+				.isFalse();
+	}
+
+	@Test
+	void doesNotClassifyReelsRouteWithoutShortcodeAsPost() {
+		assertThat(extractor.isInstagramPostUrl("https://www.instagram.com/reels/"))
+				.isFalse();
+	}
+
+	@Test
+	void doesNotTreatReelsReservedPathAsProfileUsername() {
+		assertThat(extractor.profileUsernameFromUrl("/reels/"))
+				.isEmpty();
+	}
+
+	@Test
 	void validatesProfileUsernameAndSupportedPostPermalinks() {
 		assertThat(extractor.profileUsernameFromUrl("https://www.instagram.com/Doctor_1/?hl=ko"))
 				.contains("doctor_1");

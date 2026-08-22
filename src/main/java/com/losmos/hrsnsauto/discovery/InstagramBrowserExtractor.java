@@ -37,7 +37,7 @@ public class InstagramBrowserExtractor {
 	private static final Pattern USERNAME_PATTERN = Pattern.compile(
 			"^[A-Za-z0-9_](?:[A-Za-z0-9._]{0,28}[A-Za-z0-9_])?$");
 	private static final Pattern SUPPORTED_POST_PATH_PATTERN = Pattern.compile(
-			"^/(p|reel|tv)/([A-Za-z0-9_-]+)/?$", Pattern.CASE_INSENSITIVE);
+			"^/(p|reel|reels|tv)/([A-Za-z0-9_-]+)/?$", Pattern.CASE_INSENSITIVE);
 	private static final Set<String> NON_PROFILE_PATHS = Set.of(
 			"p", "reel", "reels", "tv", "explore", "accounts", "direct", "stories",
 			"about", "developer", "legal", "web", "api");
@@ -739,12 +739,18 @@ public class InstagramBrowserExtractor {
 				return Optional.empty();
 			}
 			return Optional.of(new PostIdentity(
-					pathMatcher.group(1).toLowerCase(Locale.ROOT),
+					canonicalPostType(pathMatcher.group(1)),
 					pathMatcher.group(2)));
 		}
 		catch (IllegalArgumentException exception) {
 			return Optional.empty();
 		}
+	}
+
+	private String canonicalPostType(String pathType) {
+		// Instagram navigation이 동일 Reel을 두 route로 표시해도 post identity는 하나로 유지한다.
+		String normalized = pathType.toLowerCase(Locale.ROOT);
+		return normalized.equals("reels") ? "reel" : normalized;
 	}
 
 	private String safeFinalPath(URI uri) {
