@@ -2,7 +2,7 @@
 
 ## 마지막 갱신일
 
-- 2026-08-23 02:03:55 KST
+- 2026-08-23 02:42:01 KST
 
 # 중단기 작업 기억
 
@@ -16,37 +16,40 @@
 
 ## 남은 live 검증
 
-- 사용자 macOS headed Playwright Chromium의 실제 Reel 화면에서 main의 visible author href가 `/{username}/reels/` 형태임이 확인됐다. 동일 username href가 avatar와 username link로 두 번 반복됐다.
-- 기존 `profileUsernameFromUrl()`이 정확히 1개 path segment만 허용해 해당 link를 모두 제외했고, 실제 실패 diagnostic의 `rootLinks=12`에도 `profileLinks=0`, `candidates=-`가 된 것이 root cause이다.
-- 정확한 2-segment `/{username}/reels/`를 canonical profile identity로 지원하도록 수정했다. `/reels/{shortcode}/`와 `/reels/audio/...`의 첫 segment `reels`는 계속 예약어로 제외한다.
-- 사용자의 기존 macOS browser profile과 이전 실패 item으로 live retest가 필요하다. retest에서는 author 추출과 canonical profile root navigation까지 확인해야 한다.
-- 실패 시 새 compact diagnostic만 공유하고 raw HTML, page 전체 text, screenshot, cookie, session directory, query/fragment는 공유하지 않는다.
+- 사용자 macOS headed Playwright Chromium에서 Reel author 추출과 canonical profile navigation은 live 성공했다.
+- 실제 profile header에서 follower/following anchor가 `/followers/`·`/following/`이 아니라 `href="#"`일 수 있음이 확인됐다.
+- 실제 display name은 username 바로 다음이자 첫 metric 이전 line에 위치한다. Metric 이후의 bio/address를 display name으로 선택하지 않아야 한다.
+- visible header follower `3568`과 `og:description` follower `3554`처럼 화면값과 metadata 값이 다를 수 있음이 확인됐다. Visible header를 authoritative source로 사용하고 metadata는 누락값 fallback으로만 사용한다.
+- 이번 parser 개선은 synthetic fixture로만 검증했다. 사용자의 기존 macOS persistent profile에서 display name, post/follower/following count와 최종 `SUCCESS`/`PARTIAL` 상태를 live 재검증해야 한다.
+- 실패 시 raw HTML, page 전체 text, screenshot, cookie, session directory, query/fragment를 공유하지 않는다.
 - challenge/checkpoint/CAPTCHA가 보이면 즉시 중단하고 자동 해결을 시도하지 않는다.
 
 # 직전 작업 기억
 
-## Instagram author profile Reels tab compatibility
+## Instagram profile field extraction
 
-- `profileUsernameFromUrl()`은 canonical `/{username}/`와 정확히 2개 segment인 `/{username}/reels/`를 지원한다. Absolute Instagram HTTPS URL에도 같은 규칙을 적용한다.
-- 첫 segment는 기존 `USERNAME_PATTERN`, `..` 거부, `NON_PROFILE_PATHS` 예약어 검사를 그대로 통과해야 한다. 두 번째 segment는 정확히 소문자 `reels`여야 한다.
-- `NON_PROFILE_PATHS`의 `reels`를 유지하므로 `/reels/{shortcode}/`, `/reels/audio/...`, `/reels/`에서 `reels`를 username으로 인식하지 않는다. explore, accounts, p, reel 등 기존 non-profile route도 계속 제외한다.
-- Author username을 `/{username}/reels/`에서 얻어도 기존 `profileLink(username)`을 재사용해 profile URL은 `https://www.instagram.com/{username}/`로 canonicalize한다. `InstagramBrowserClient`는 수정하지 않았다.
-- Main fallback은 첫 profile-like link를 선택하지 않고 기존 bounded 범위와 동일 username 반복 evidence를 그대로 사용한다. Caption mention inference도 추가하지 않았다.
+- Profile metric별 source priority는 `visible main header line → 기존 href suffix locator 및 labeled header anchor → og:description/name=description`이다.
+- Post는 `posts`·`post`·`게시물`, follower는 `followers`·`follower`·`팔로워`, following은 `following`·`팔로잉`·`팔로우` label과 같은 text에 결합된 숫자만 field별로 파싱한다.
+- Visible 값이 있으면 metadata 값을 읽어 덮어쓰지 않는다. `href="#"` anchor도 header text와 labeled anchor fallback으로 처리한다.
+- Display name은 exact username line 다음부터 첫 metric line 전까지만 탐색한다. Username, metric, control, external URL, highlight boundary, 255 code point 초과 text를 제외한다.
+- Header에서 display name을 얻지 못하면 bounded `og:title`·description content에서 exact expected username marker 앞 text만 fallback으로 사용한다. Metric 이후의 bio/address를 display name fallback으로 사용하지 않는다.
+- Biography는 metric block 뒤에서 시작하고 username, display name, metric을 제외하며 external URL, control, highlight boundary에서 중단한다. 기존 최대 300자 excerpt를 유지한다.
+- Verified/private와 `InstagramProfileBrowserSnapshot.isPartial()` 정책은 변경하지 않았다.
 
 ## Synthetic 검증
 
-- 구현 전 `InstagramBrowserExtractorTest` 32개 중 profile Reels tab parser와 실제 live DOM 형태 main fallback 테스트 2개가 실패해 root cause를 재현했다.
-- Canonical profile, relative·absolute profile Reels tab, Reel post, Reel audio, explore tag, accounts, p, reel, 3-segment suffix 거부를 검증한다.
-- 실제 link 순서 fixture에서 `profileLinks=4`, `candidates=dr_howoo,dino.the.nomad`, 선택 author `dr_howoo`, canonical profile URL `https://www.instagram.com/dr_howoo/`를 확인했다.
-- `./mvnw -Dtest=InstagramBrowserExtractorTest,InstagramBrowserClientTest test`: 33개 전체 통과했다.
-- 기존 external host, encoded suspicious path, reserved path, caption mention-only, commenter/recommended author 오탐 방지와 home/explore/external/different-post 안전 경계 테스트를 모두 유지했다.
+- 구현 전 Korean live DOM, English, metadata display fallback, display name 없음, 주소 오인 fixture 6개가 실패해 기존 root cause를 재현했다.
+- Korean `href="#"`, visible `3568` 대 metadata `3554` 우선순위, field별 Korean/English count, metadata-only 세 metric fallback, username 다음/metric 이전 display name, bio/address 경계를 검증한다.
+- 필수 profile field가 모두 있으면 `isPartial()` false이고 display name이 없으면 true인 기존 정책을 검증한다.
+- `./mvnw -Dtest=InstagramBrowserExtractorTest,InstagramBrowserClientTest test`: 40개 전체 통과했다.
+- 기존 Reel author extraction과 URL/author safety fixture를 모두 유지했다.
 - 실제 Instagram network와 persistent session은 Codex sandbox에서 호출하지 않았다.
 
 ## Maven과 Docker 검증
 
 - `docker compose up -d postgres`, `docker compose ps`: sandbox의 Docker socket 접근 권한 거부로 실행하지 못했다.
-- `./mvnw test`: 총 106개, failures 0, errors 11이다. PostgreSQL 비의존 95개는 통과했고 DB 연결 테스트 11개만 container 미기동으로 error가 발생했다.
-- `./mvnw package`: 같은 106개 중 DB 연결 error 11개로 test 단계에서 실패했다.
+- `./mvnw test`: 총 113개, failures 0, errors 11이다. PostgreSQL 비의존 102개는 통과했고 DB 연결 테스트 11개만 container 미기동으로 error가 발생했다.
+- `./mvnw package`: 같은 113개 중 DB 연결 error 11개로 test 단계에서 실패했다.
 - `./mvnw package -DskipTests`: compile과 executable jar package에 성공했다. 전체 package 성공을 대신하지 않는다.
 - `git diff --check`: 통과했다.
 
@@ -59,22 +62,27 @@
 
 ## 작업 전 파일 보존과 범위
 
-- 작업 시작 전 미추적 `prompts/tasks/support_instagram_profile_reels_tab_route.md`는 수정하지 않았다.
+- 작업 시작 전 미추적 `prompts/tasks/fix_instagram_profile_metrics_and_display_name.md`는 수정하지 않았다.
 - Meta hashtag discovery, Candidate domain, EligibilityPolicy, DB migration, browser external action과 stealth/evasion은 수정하지 않았다.
-- `/reel/`·`/reels/` post alias, post root 선택, main fallback 범위와 author safety heuristic은 변경하지 않았다.
-- 최신 사용자 요청이 실제 macOS DOM 결과에 따른 profile parser 수정을 명시해 이전 추천 작업 중 live retest와 Candidate identity vertical slice는 수행하지 않았다.
+- Reel author extraction, `/reel`·`/reels` alias, profile reels tab route, post root와 author safety heuristic은 변경하지 않았다.
+- 최신 사용자 요청이 profile field parser 수정을 명시해 이전 추천 작업 중 Candidate identity vertical slice는 수행하지 않았다.
 - 사용자 답변이 필요한 질문이나 blocker는 없어 clarification request를 만들지 않았다.
 
 ## 다음 추천 작업
 
-1. 사용자 macOS에서 Docker Desktop과 애플리케이션을 시작하고 Playwright session을 준비한 뒤 `/discovery`의 이전 `AUTHOR_EXTRACTION_FAILED` item에서 `브라우저 정보 가져오기`를 다시 실행한다.
-2. `/reels/{shortcode}/` 화면에서 `/{username}/reels/` author pair가 profile candidate로 잡히고 canonical `https://www.instagram.com/{username}/` profile navigation과 observation 저장까지 성공하는지 확인한다.
-3. 실패 시 compact diagnostic의 `profileLinks`와 `candidates`만 포함해 공유한다. raw HTML, cookie, session, token은 공유하지 않고 challenge/checkpoint/CAPTCHA가 보이면 즉시 중단한다.
-4. Docker Desktop이 실행되는 사용자 환경에서 `./mvnw test`, `./mvnw package` 전체 성공을 확인한다.
-5. browser enrichment가 안정화되면 `DiscoveryBrowserObservation → Candidate 연결 + username/history identity` vertical slice를 진행한다.
+1. 사용자 macOS에서 Docker Desktop과 애플리케이션을 시작하고 기존 Playwright session으로 `nurschema_studycafe`가 author인 Discovery item의 `브라우저 정보 가져오기`를 실행한다.
+2. Observation에서 display name `Nurschema의 공부방 | 간호사가 되기 위한 임상 공부`, post `81`, follower는 실행 시점 visible header 값, following `2`가 저장되는지 확인한다.
+3. Header와 metadata count가 다르면 visible header 값이 최종 observation에 남고, 필수 field가 모두 있으면 상태가 `SUCCESS`인지 확인한다.
+4. 실패 시 raw HTML, cookie, session, token을 공유하지 않고 안전한 화면 field와 상태만 공유한다. Challenge/checkpoint/CAPTCHA가 보이면 즉시 중단한다.
+5. Docker Desktop이 실행되는 사용자 환경에서 `./mvnw test`, `./mvnw package` 전체 성공을 확인한다.
+6. Browser enrichment가 안정화되면 `DiscoveryBrowserObservation → Candidate 연결 + username/history identity` vertical slice를 진행한다.
 
 ## 주의할 점
 
+- Profile metric anchor의 href 형태를 field identity로 가정하지 않는다. Label과 대응 숫자를 함께 확인한다.
+- 전체 header의 첫 숫자를 여러 metric에 재사용하지 않는다.
+- Visible header 값은 metadata보다 우선하며 metadata는 null field만 보완한다.
+- Display name은 metric 이후의 bio, 주소, external URL, control, highlight label에서 추론하지 않는다.
 - `/{username}/reels/`는 profile tab이고 `/reels/{shortcode}/`는 Reel post이다. 첫 segment `reels`는 계속 profile username 예약어이다.
 - `reel`과 `reels` post route는 shortcode가 같을 때만 같은 identity이다. 다른 shortcode, `p`와 `reel`, home/explore/external은 계속 다른 위치로 취급한다.
 - final URL이 home/explore/external 또는 다른 post이면 main fallback을 넓히지 않는다.

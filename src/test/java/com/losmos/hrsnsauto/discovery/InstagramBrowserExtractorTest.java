@@ -562,6 +562,179 @@ class InstagramBrowserExtractorTest {
 				.classification()).isEqualTo(InstagramBrowserExtractor.PageClassification.ACTION_REQUIRED);
 	}
 
+	@Test
+	void extractsLiveKoreanProfileHeaderBeforeMetadataWhenMetricLinksUseHashHref() throws Exception {
+		InstagramProfileBrowserSnapshot profile = profileFromSyntheticPage(
+				"nurschema_studycafe",
+				"""
+				<meta property="og:title"
+				      content="Nurschema의 공부방 | 간호사가 되기 위한 임상 공부(@nurschema_studycafe) • Instagram 사진 및 동영상" />
+				<meta property="og:description"
+				      content="팔로워 3,554명, 팔로잉 2명, 게시물 81개 - profile metadata" />
+				<main>
+				  <header>
+				    <a href="/nurschema_studycafe/"></a>
+				    <a href="#">nurschema_studycafe</a>
+				    <div>Nurschema의 공부방 | 간호사가 되기 위한 임상 공부</div>
+				    <div>게시물 81</div>
+				    <a href="#">팔로워 3568</a>
+				    <a href="#">팔로우 2</a>
+				    <div>🌸Nurse+Schema라는 뜻입니다.</div>
+				    <div>🍀풀 영상 유튜브 참고!!</div>
+				    <a href="https://www.youtube.com/example">www.youtube.com/example</a>
+				    <button>팔로우</button>
+				    <button>메시지 보내기</button>
+				  </header>
+				</main>
+				""");
+
+		assertThat(profile.displayName())
+				.isEqualTo("Nurschema의 공부방 | 간호사가 되기 위한 임상 공부");
+		assertThat(profile.postCount()).isEqualTo(81L);
+		assertThat(profile.followerCount()).isEqualTo(3_568L);
+		assertThat(profile.followingCount()).isEqualTo(2L);
+		assertThat(profile.biographyExcerpt())
+				.isEqualTo("🌸Nurse+Schema라는 뜻입니다. · 🍀풀 영상 유튜브 참고!!");
+		assertThat(profile.isPartial()).isFalse();
+	}
+
+	@Test
+	void fillsOnlyMissingHeaderMetricsFromMetadata() throws Exception {
+		InstagramProfileBrowserSnapshot profile = profileFromSyntheticPage(
+				"doctor_meta",
+				"""
+				<meta property="og:title" content="Metadata Doctor(@doctor_meta) • Instagram" />
+				<meta property="og:description"
+				      content="팔로워 3,554명, 팔로잉 2명, 게시물 81개 - metadata biography" />
+				<meta name="description"
+				      content="3,500 followers, 3 following, 80 posts - older metadata" />
+				<main>
+				  <header>
+				    <div>doctor_meta</div>
+				    <div>Header Doctor</div>
+				    <div>게시물 82</div>
+				  </header>
+				</main>
+				""");
+
+		assertThat(profile.displayName()).isEqualTo("Header Doctor");
+		assertThat(profile.postCount()).isEqualTo(82L);
+		assertThat(profile.followerCount()).isEqualTo(3_554L);
+		assertThat(profile.followingCount()).isEqualTo(2L);
+	}
+
+	@Test
+	void extractsAllProfileMetricsFromMetadataWhenHeaderHasNoMetricLines() throws Exception {
+		InstagramProfileBrowserSnapshot profile = profileFromSyntheticPage(
+				"metadata_only",
+				"""
+				<meta property="og:title" content="Metadata Only(@metadata_only) • Instagram" />
+				<meta property="og:description"
+				      content="팔로워 3,554명, 팔로잉 2명, 게시물 81개 - metadata biography" />
+				<main>
+				  <header>
+				    <div>metadata_only</div>
+				  </header>
+				</main>
+				""");
+
+		assertThat(profile.displayName()).isEqualTo("Metadata Only");
+		assertThat(profile.postCount()).isEqualTo(81L);
+		assertThat(profile.followerCount()).isEqualTo(3_554L);
+		assertThat(profile.followingCount()).isEqualTo(2L);
+	}
+
+	@Test
+	void extractsFieldSpecificEnglishHeaderMetrics() throws Exception {
+		InstagramProfileBrowserSnapshot profile = profileFromSyntheticPage(
+				"doctor_one",
+				"""
+				<main>
+				  <header>
+				    <div>doctor_one</div>
+				    <div>Doctor One</div>
+				    <div>125 posts</div>
+				    <div>9,876 followers</div>
+				    <div>102 following</div>
+				  </header>
+				</main>
+				""");
+
+		assertThat(profile.displayName()).isEqualTo("Doctor One");
+		assertThat(profile.postCount()).isEqualTo(125L);
+		assertThat(profile.followerCount()).isEqualTo(9_876L);
+		assertThat(profile.followingCount()).isEqualTo(102L);
+	}
+
+	@Test
+	void keepsDisplayNameBeforeMetricsInsteadOfAddressInBiography() throws Exception {
+		InstagramProfileBrowserSnapshot profile = profileFromSyntheticPage(
+				"kjmbc",
+				"""
+				<main>
+				  <header>
+				    <div>kjmbc</div>
+				    <div>광주MBC</div>
+				    <div>게시물 3698</div>
+				    <div>팔로워 8,765</div>
+				    <div>팔로우 123</div>
+				    <div>남구 월산로116번길 17, Gwangju 503-728</div>
+				    <button>팔로우</button>
+				  </header>
+				</main>
+				""");
+
+		assertThat(profile.displayName()).isEqualTo("광주MBC");
+		assertThat(profile.displayName()).doesNotContain("월산로");
+		assertThat(profile.biographyExcerpt())
+				.isEqualTo("남구 월산로116번길 17, Gwangju 503-728");
+	}
+
+	@Test
+	void usesMetadataDisplayNameBeforeUsingTextAfterMetrics() throws Exception {
+		InstagramProfileBrowserSnapshot profile = profileFromSyntheticPage(
+				"meta_name_doctor",
+				"""
+				<meta property="og:title" content="Meta Name Doctor (@meta_name_doctor) • Instagram" />
+				<main>
+				  <header>
+				    <div>meta_name_doctor</div>
+				    <div>81 posts</div>
+				    <div>3,554 followers</div>
+				    <div>2 following</div>
+				    <div>Seoul clinic biography, not a display name</div>
+				    <button>Follow</button>
+				  </header>
+				</main>
+				""");
+
+		assertThat(profile.displayName()).isEqualTo("Meta Name Doctor");
+		assertThat(profile.biographyExcerpt())
+				.isEqualTo("Seoul clinic biography, not a display name");
+	}
+
+	@Test
+	void leavesDisplayNameNullAndProfilePartialWhenMetricsImmediatelyFollowUsername() throws Exception {
+		InstagramProfileBrowserSnapshot profile = profileFromSyntheticPage(
+				"no_display_name",
+				"""
+				<main>
+				  <header>
+				    <div>no_display_name</div>
+				    <div>게시물 10</div>
+				    <div>팔로워 20</div>
+				    <div>팔로우 3</div>
+				    <div>부산광역시 해운대로 123</div>
+				    <button>메시지 보내기</button>
+				  </header>
+				</main>
+				""");
+
+		assertThat(profile.displayName()).isNull();
+		assertThat(profile.biographyExcerpt()).isEqualTo("부산광역시 해운대로 123");
+		assertThat(profile.isPartial()).isTrue();
+	}
+
 	private InstagramBrowserExtractor.PostExtractionResult extractionFromSyntheticPage(
 			String finalUrl, String body) throws Exception {
 		Document document = parseDocument(body);
@@ -610,6 +783,80 @@ class InstagramBrowserExtractorTest {
 				.thenReturn(dialogLocator);
 
 		return extractor.extractPostWithDiagnostic(page);
+	}
+
+	private InstagramProfileBrowserSnapshot profileFromSyntheticPage(
+			String expectedUsername, String body) throws Exception {
+		Document document = parseDocument(body);
+		Page page = mock(Page.class);
+
+		List<Element> headers = elementsByTag(document, "header");
+		List<Element> mainElements = elementsByTag(document, "main");
+		List<Element> headerAnchors = headers.isEmpty()
+				? List.of()
+				: childElementsByTag(headers.getFirst(), "a");
+		Locator headerLocator = elementCollection(headers);
+		Locator mainLocator = elementCollection(mainElements);
+		Locator headerAnchorLocator = elementCollection(headerAnchors);
+		Locator followerAnchorLocator = elementCollection(elementsWithAttributeSuffix(
+				headerAnchors, "href", "/followers/"));
+		Locator followingAnchorLocator = elementCollection(elementsWithAttributeSuffix(
+				headerAnchors, "href", "/following/"));
+		Locator ogTitleLocator = elementCollection(metaElements(document, "property", "og:title"));
+		Locator ogDescriptionLocator = elementCollection(
+				metaElements(document, "property", "og:description"));
+		Locator descriptionLocator = elementCollection(metaElements(document, "name", "description"));
+
+		when(page.locator("main header")).thenReturn(headerLocator);
+		when(page.locator("main")).thenReturn(mainLocator);
+		when(page.locator("main header a[href]")).thenReturn(headerAnchorLocator);
+		when(page.locator("main header a[href$='/followers/']")).thenReturn(followerAnchorLocator);
+		when(page.locator("main header a[href$='/following/']")).thenReturn(followingAnchorLocator);
+		when(page.locator("meta[property='og:title']")).thenReturn(ogTitleLocator);
+		when(page.locator("meta[property='og:description']")).thenReturn(ogDescriptionLocator);
+		when(page.locator("meta[name='description']")).thenReturn(descriptionLocator);
+
+		return extractor.extractProfile(page, expectedUsername).orElseThrow();
+	}
+
+	private Locator elementCollection(List<Element> elements) {
+		return locatorCollection(elements.stream().map(this::elementLocator).toList());
+	}
+
+	private Locator elementLocator(Element element) {
+		Locator locator = mock(Locator.class);
+		when(locator.count()).thenReturn(1);
+		when(locator.first()).thenReturn(locator);
+		when(locator.nth(0)).thenReturn(locator);
+		when(locator.isVisible()).thenReturn(true);
+		when(locator.innerText()).thenReturn(textOrNull(element));
+		when(locator.getAttribute("href")).thenReturn(attributeOrNull(element, "href"));
+		when(locator.getAttribute("title")).thenReturn(attributeOrNull(element, "title"));
+		when(locator.getAttribute("aria-label")).thenReturn(attributeOrNull(element, "aria-label"));
+		when(locator.getAttribute("content")).thenReturn(attributeOrNull(element, "content"));
+		return locator;
+	}
+
+	private List<Element> childElementsByTag(Element root, String tagName) {
+		List<Element> elements = new ArrayList<>();
+		NodeList nodes = root.getElementsByTagName(tagName);
+		for (int index = 0; index < nodes.getLength(); index++) {
+			elements.add((Element) nodes.item(index));
+		}
+		return elements;
+	}
+
+	private List<Element> elementsWithAttributeSuffix(
+			List<Element> elements, String attribute, String suffix) {
+		return elements.stream()
+				.filter(element -> element.getAttribute(attribute).endsWith(suffix))
+				.toList();
+	}
+
+	private List<Element> metaElements(Document document, String attribute, String expectedValue) {
+		return elementsByTag(document, "meta").stream()
+				.filter(element -> expectedValue.equalsIgnoreCase(element.getAttribute(attribute)))
+				.toList();
 	}
 
 	@SafeVarargs

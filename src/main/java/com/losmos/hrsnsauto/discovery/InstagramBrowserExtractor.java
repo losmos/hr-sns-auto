@@ -29,6 +29,7 @@ public class InstagramBrowserExtractor {
 	private static final int MAX_DIAGNOSTIC_USERNAMES = 3;
 	private static final int MAX_DIAGNOSTIC_PATH_LENGTH = 160;
 	private static final int MAX_VISIBLE_TEXT_LENGTH = 12_000;
+	private static final int MAX_METADATA_TEXT_CODE_POINTS = 2_000;
 	private static final int POST_EXTRACTION_ATTEMPTS = 3;
 	private static final double SEMANTIC_ARTICLE_WAIT_MILLIS = 1_500;
 	private static final double MAIN_FALLBACK_WAIT_MILLIS = 1_200;
@@ -56,11 +57,25 @@ public class InstagramBrowserExtractor {
 			"header a[href]",
 			"h1 a[href]",
 			"h2 a[href]");
-	private static final List<String> PROFILE_METRIC_LABELS = List.of(
-			"posts", "post", "followers", "follower", "following", "게시물", "팔로워", "팔로우");
-	private static final List<String> PROFILE_CONTROL_LABELS = List.of(
-			"follow", "following", "message", "contact", "edit profile", "see translation",
-			"팔로우", "메시지", "연락처", "프로필 편집", "번역 보기", "인증됨", "verified");
+	private static final List<String> PROFILE_POST_LABELS = List.of("posts", "post", "게시물");
+	private static final List<String> PROFILE_FOLLOWER_LABELS = List.of(
+			"followers", "follower", "팔로워");
+	private static final List<String> PROFILE_FOLLOWING_LABELS = List.of(
+			"following", "팔로잉", "팔로우");
+	private static final List<List<String>> PROFILE_METRIC_LABEL_GROUPS = List.of(
+			PROFILE_POST_LABELS, PROFILE_FOLLOWER_LABELS, PROFILE_FOLLOWING_LABELS);
+	private static final Set<String> PROFILE_CONTROL_LINES = Set.of(
+			"follow", "following", "follow back", "message", "contact", "edit profile",
+			"see translation", "verified", "팔로우", "팔로잉", "맞팔로우", "메시지",
+			"메시지 보내기", "연락처", "프로필 편집", "번역 보기", "인증됨");
+	private static final Set<String> PROFILE_HIGHLIGHT_BOUNDARY_LINES = Set.of(
+			"highlights", "story highlights", "하이라이트", "스토리 하이라이트");
+	private static final Pattern EXTERNAL_URL_PATTERN = Pattern.compile(
+			"(?i)^(?:(?:https?://|www\\.)\\S+|[\\p{L}0-9](?:[\\p{L}0-9.-]*\\.)"
+					+ "[A-Za-z]{2,}(?:/\\S*)?)$");
+	private static final String METRIC_NUMBER_TOKEN =
+			"([0-9]+(?:[.,][0-9]+)*(?:[\\s\\p{Zs}]*[KkMm천만])?)";
+	private static final String METRIC_SEPARATOR = "[\\s\\p{Zs}]*[:：]?[\\s\\p{Zs}]*";
 
 	private final InstagramMetricParser metricParser;
 
@@ -135,16 +150,55 @@ public class InstagramBrowserExtractor {
 			return Optional.empty();
 		}
 
-		Long followerCount = metricFromLocator(
-				page.locator("main header a[href$='/followers/']"),
-				List.of("followers", "follower", "팔로워"));
-		Long followingCount = metricFromLocator(
-				page.locator("main header a[href$='/following/']"),
-				List.of("following", "팔로우"));
-		Long postCount = metricFromText(headerText, List.of("posts", "post", "게시물"));
-
 		List<String> lines = meaningfulLines(headerText);
-		String displayName = displayName(page, expectedUsername, lines);
+		Long followerCount = metricFromLines(lines, PROFILE_FOLLOWER_LABELS);
+		Long followingCount = metricFromLines(lines, PROFILE_FOLLOWING_LABELS);
+		Long postCount = metricFromLines(lines, PROFILE_POST_LABELS);
+
+		// href suffix는 지원되는 기존 UI의 secondary source로만 유지한다.
+		if (followerCount == null) {
+			followerCount = metricFromLocator(
+					page.locator("main header a[href$='/followers/']"),
+					PROFILE_FOLLOWER_LABELS);
+		}
+		if (followingCount == null) {
+			followingCount = metricFromLocator(
+					page.locator("main header a[href$='/following/']"),
+					PROFILE_FOLLOWING_LABELS);
+		}
+
+		// href="#"인 현재 UI와 다른 semantic anchor 형태도 label-number pair로만 읽는다.
+		if (followerCount == null) {
+			followerCount = labeledMetricFromLocator(
+					page.locator("main header a[href]"), PROFILE_FOLLOWER_LABELS);
+		}
+		if (followingCount == null) {
+			followingCount = labeledMetricFromLocator(
+					page.locator("main header a[href]"), PROFILE_FOLLOWING_LABELS);
+		}
+		if (postCount == null) {
+			postCount = labeledMetricFromLocator(
+					page.locator("main header a[href]"), PROFILE_POST_LABELS);
+		}
+
+		// Metadata는 visible/semantic source에서 누락된 field만 보완하며 기존 값을 덮어쓰지 않는다.
+		if (followerCount == null || followingCount == null || postCount == null) {
+			List<String> descriptions = profileDescriptionMetadata(page);
+			if (followerCount == null) {
+				followerCount = metricFromTexts(descriptions, PROFILE_FOLLOWER_LABELS);
+			}
+			if (followingCount == null) {
+				followingCount = metricFromTexts(descriptions, PROFILE_FOLLOWING_LABELS);
+			}
+			if (postCount == null) {
+				postCount = metricFromTexts(descriptions, PROFILE_POST_LABELS);
+			}
+		}
+
+		String displayName = displayName(expectedUsername, lines);
+		if (displayName == null) {
+			displayName = displayNameFromMetadata(page, expectedUsername);
+		}
 		String biographyExcerpt = biographyExcerpt(lines, expectedUsername, displayName);
 		Boolean verified = hasVisible(page.locator(String.join(", ",
 				"main header [aria-label*='Verified']",
@@ -508,6 +562,14 @@ public class InstagramBrowserExtractor {
 	}
 
 	private Long metricFromLocator(Locator locator, List<String> labels) {
+		return metricFromLocator(locator, labels, true);
+	}
+
+	private Long labeledMetricFromLocator(Locator locator, List<String> labels) {
+		return metricFromLocator(locator, labels, false);
+	}
+
+	private Long metricFromLocator(Locator locator, List<String> labels, boolean allowDirectCount) {
 		int count = Math.min(safeCount(locator), 5);
 		for (int index = 0; index < count; index++) {
 			Locator item = locator.nth(index);
@@ -519,7 +581,9 @@ public class InstagramBrowserExtractor {
 						valueOrEmpty(item.getAttribute("title")),
 						valueOrEmpty(item.getAttribute("aria-label")),
 						valueOrEmpty(item.innerText()))) {
-					Long metric = metricFromText(value, labels);
+					Long metric = allowDirectCount
+							? metricFromText(value, labels)
+							: labeledMetricFromText(value, labels);
 					if (metric != null) {
 						return metric;
 					}
@@ -527,6 +591,20 @@ public class InstagramBrowserExtractor {
 			}
 			catch (PlaywrightException ignored) {
 				// optional metric 하나의 locator 실패는 전체 profile 관찰 실패로 확대하지 않는다.
+			}
+		}
+		return null;
+	}
+
+	private Long metricFromLines(List<String> lines, List<String> labels) {
+		return metricFromTexts(lines, labels);
+	}
+
+	private Long metricFromTexts(List<String> texts, List<String> labels) {
+		for (String text : texts) {
+			Long metric = labeledMetricFromText(text, labels);
+			if (metric != null) {
+				return metric;
 			}
 		}
 		return null;
@@ -540,12 +618,22 @@ public class InstagramBrowserExtractor {
 		if (direct.isPresent()) {
 			return direct.get();
 		}
-		String token = "([0-9][0-9.,]*\\s*[KkMm천만]?)";
+		return labeledMetricFromText(text, labels);
+	}
+
+	private Long labeledMetricFromText(String text, List<String> labels) {
+		if (text == null || text.isBlank()) {
+			return null;
+		}
 		for (String label : labels) {
 			String quotedLabel = Pattern.quote(label);
 			for (Pattern pattern : List.of(
-					Pattern.compile(token + "\\s*" + quotedLabel, Pattern.CASE_INSENSITIVE),
-					Pattern.compile(quotedLabel + "\\s*" + token, Pattern.CASE_INSENSITIVE))) {
+					Pattern.compile(
+							METRIC_NUMBER_TOKEN + METRIC_SEPARATOR + quotedLabel,
+							Pattern.CASE_INSENSITIVE),
+					Pattern.compile(
+							quotedLabel + METRIC_SEPARATOR + METRIC_NUMBER_TOKEN,
+							Pattern.CASE_INSENSITIVE))) {
 				Matcher matcher = pattern.matcher(text);
 				if (matcher.find()) {
 					Optional<Long> parsed = metricParser.parse(matcher.group(1));
@@ -558,52 +646,164 @@ public class InstagramBrowserExtractor {
 		return null;
 	}
 
-	private String displayName(Page page, String username, List<String> headerLines) {
-		for (String heading : visibleTexts(page.locator("main header h1, main header h2"), 10)) {
-			if (!heading.equalsIgnoreCase(username) && isProfileText(heading)) {
-				return excerpt(heading, 255);
-			}
+	private String displayName(String username, List<String> headerLines) {
+		int usernameIndex = usernameLineIndex(headerLines, username);
+		int firstMetricIndex = firstMetricLineIndex(headerLines, usernameIndex + 1);
+		if (usernameIndex < 0 || firstMetricIndex < 0) {
+			return null;
 		}
 
-		boolean metricsSeen = false;
-		for (String line : headerLines) {
-			if (containsLabel(line, PROFILE_METRIC_LABELS)) {
-				metricsSeen = true;
-				continue;
-			}
-			if (metricsSeen && !line.equalsIgnoreCase(username) && isProfileText(line)) {
-				return excerpt(line, 255);
+		for (int index = usernameIndex + 1; index < firstMetricIndex; index++) {
+			String candidate = headerLines.get(index);
+			if (isDisplayNameCandidate(candidate, username)) {
+				return candidate;
 			}
 		}
 		return null;
 	}
 
+	private String displayNameFromMetadata(Page page, String username) {
+		List<String> metadata = new ArrayList<>();
+		metadata.addAll(metadataContents(page.locator("meta[property='og:title']")));
+		metadata.addAll(profileDescriptionMetadata(page));
+
+		Pattern parenthesizedUsername = Pattern.compile(
+				"\\(\\s*@?" + Pattern.quote(username) + "\\s*\\)",
+				Pattern.CASE_INSENSITIVE);
+		Pattern bareUsername = Pattern.compile(
+				"(?<![A-Za-z0-9._])@" + Pattern.quote(username) + "(?![A-Za-z0-9._])",
+				Pattern.CASE_INSENSITIVE);
+		for (String value : metadata) {
+			Matcher parenthesizedMatcher = parenthesizedUsername.matcher(value);
+			Matcher bareMatcher = bareUsername.matcher(value);
+			int markerStart = parenthesizedMatcher.find()
+					? parenthesizedMatcher.start()
+					: bareMatcher.find() ? bareMatcher.start() : -1;
+			if (markerStart <= 0) {
+				continue;
+			}
+			String candidate = trimmed(value.substring(0, markerStart));
+			if (isDisplayNameCandidate(candidate, username)) {
+				return candidate;
+			}
+		}
+		return null;
+	}
+
+	private List<String> profileDescriptionMetadata(Page page) {
+		Set<String> descriptions = new LinkedHashSet<>();
+		descriptions.addAll(metadataContents(page.locator("meta[property='og:description']")));
+		descriptions.addAll(metadataContents(page.locator("meta[name='description']")));
+		return List.copyOf(descriptions);
+	}
+
+	private List<String> metadataContents(Locator locator) {
+		List<String> values = new ArrayList<>();
+		int count = Math.min(safeCount(locator), 5);
+		for (int index = 0; index < count; index++) {
+			try {
+				String content = excerpt(
+						locator.nth(index).getAttribute("content"), MAX_METADATA_TEXT_CODE_POINTS);
+				if (content != null) {
+					values.add(content);
+				}
+			}
+			catch (PlaywrightException ignored) {
+				// 필요한 bounded content 하나가 사라져도 다음 metadata fallback을 확인한다.
+			}
+		}
+		return values;
+	}
+
 	private String biographyExcerpt(List<String> headerLines, String username, String displayName) {
+		int usernameIndex = usernameLineIndex(headerLines, username);
+		int firstMetricIndex = firstMetricLineIndex(headerLines, usernameIndex + 1);
+		if (usernameIndex < 0 || firstMetricIndex < 0) {
+			return null;
+		}
+
+		int lastMetricIndex = firstMetricIndex;
+		for (int index = firstMetricIndex + 1; index < headerLines.size(); index++) {
+			if (!isMetricLine(headerLines.get(index))) {
+				break;
+			}
+			lastMetricIndex = index;
+		}
+
 		List<String> biographyLines = new ArrayList<>();
-		boolean displayNameSeen = displayName == null;
-		for (String line : headerLines) {
-			if (line.equalsIgnoreCase(username)
-					|| containsLabel(line, PROFILE_METRIC_LABELS)
-					|| containsLabel(line, PROFILE_CONTROL_LABELS)) {
+		for (int index = lastMetricIndex + 1; index < headerLines.size(); index++) {
+			String line = headerLines.get(index);
+			if (isUsernameLine(line, username)
+					|| line.equals(displayName)
+					|| isMetricLine(line)) {
 				continue;
 			}
-			if (!displayNameSeen && line.equals(displayName)) {
-				displayNameSeen = true;
-				continue;
+			if (isBiographyBoundary(line)) {
+				break;
 			}
-			if (displayNameSeen && !line.equals(displayName)) {
-				biographyLines.add(line);
-			}
+			biographyLines.add(line);
 		}
 		return excerpt(String.join(" · ", biographyLines), DiscoveryBrowserObservation.BIOGRAPHY_EXCERPT_MAX_LENGTH);
 	}
 
-	private boolean isProfileText(String value) {
+	private int usernameLineIndex(List<String> lines, String username) {
+		for (int index = 0; index < lines.size(); index++) {
+			if (isUsernameLine(lines.get(index), username)) {
+				return index;
+			}
+		}
+		return -1;
+	}
+
+	private int firstMetricLineIndex(List<String> lines, int startIndex) {
+		for (int index = Math.max(0, startIndex); index < lines.size(); index++) {
+			if (isMetricLine(lines.get(index))) {
+				return index;
+			}
+		}
+		return -1;
+	}
+
+	private boolean isMetricLine(String value) {
+		for (List<String> labels : PROFILE_METRIC_LABEL_GROUPS) {
+			if (labeledMetricFromText(value, labels) != null) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private boolean isDisplayNameCandidate(String value, String username) {
 		return value != null
 				&& !value.isBlank()
-				&& !containsLabel(value, PROFILE_METRIC_LABELS)
-				&& !containsLabel(value, PROFILE_CONTROL_LABELS)
+				&& !isUsernameLine(value, username)
+				&& !isMetricLine(value)
+				&& !isControlLine(value)
+				&& !isHighlightBoundaryLine(value)
+				&& !looksLikeExternalUrl(value)
 				&& value.codePointCount(0, value.length()) <= 255;
+	}
+
+	private boolean isBiographyBoundary(String value) {
+		return isControlLine(value)
+				|| isHighlightBoundaryLine(value)
+				|| looksLikeExternalUrl(value);
+	}
+
+	private boolean isUsernameLine(String value, String username) {
+		return containsExactLine(value, username);
+	}
+
+	private boolean isControlLine(String value) {
+		return PROFILE_CONTROL_LINES.contains(safeLower(value).strip());
+	}
+
+	private boolean isHighlightBoundaryLine(String value) {
+		return PROFILE_HIGHLIGHT_BOUNDARY_LINES.contains(safeLower(value).strip());
+	}
+
+	private boolean looksLikeExternalUrl(String value) {
+		return value != null && EXTERNAL_URL_PATTERN.matcher(value.strip()).matches();
 	}
 
 	private List<String> meaningfulLines(String text) {
@@ -693,11 +893,6 @@ public class InstagramBrowserExtractor {
 			}
 		}
 		return false;
-	}
-
-	private boolean containsLabel(String value, List<String> labels) {
-		String normalized = safeLower(value);
-		return labels.stream().anyMatch(normalized::contains);
 	}
 
 	private boolean containsAny(String value, String... candidates) {
