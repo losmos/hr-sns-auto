@@ -292,10 +292,13 @@ public class InstagramBrowserExtractor {
 				return Optional.empty();
 			}
 			String[] segments = pathSegments(uri);
-			if (segments.length != 1) {
+			boolean canonicalProfile = segments.length == 1;
+			boolean profileReelsTab = segments.length == 2 && segments[1].equals("reels");
+			if (!canonicalProfile && !profileReelsTab) {
 				return Optional.empty();
 			}
 			String username = segments[0].toLowerCase(Locale.ROOT);
+			// `reels`는 username 예약어로 유지하고 정확한 profile tab suffix로만 허용한다.
 			if (!USERNAME_PATTERN.matcher(username).matches()
 					|| username.contains("..")
 					|| NON_PROFILE_PATHS.contains(username)) {

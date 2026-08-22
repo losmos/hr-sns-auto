@@ -108,6 +108,30 @@ class InstagramBrowserExtractorTest {
 	}
 
 	@Test
+	void mainFallbackSelectsRepeatedProfileReelsTabAuthorFromLiveDomShape() throws Exception {
+		InstagramBrowserExtractor.PostExtractionResult result = extractionFromSyntheticPage(
+				"https://www.instagram.com/reels/DcVyTw1tpwA/",
+				"""
+				<main>
+				  <a href="/dr_howoo/reels/" aria-label="dr_howoo님의 릴스"><span></span></a>
+				  <a href="/dr_howoo/reels/" aria-label="dr_howoo님의 릴스">dr_howoo</a>
+				  <a href="/explore/tags/의사/">의사</a>
+				  <a href="/reels/audio/39043968185201847/">audio</a>
+				  <a href="/dino.the.nomad/reels/"><span></span></a>
+				  <a href="/dino.the.nomad/reels/">dino.the.nomad</a>
+				</main>
+				""");
+
+		assertThat(result.snapshot()).isPresent();
+		InstagramPostBrowserSnapshot snapshot = result.snapshot().orElseThrow();
+		assertThat(snapshot.authorUsername()).isEqualTo("dr_howoo");
+		assertThat(snapshot.profileUrl()).isEqualTo("https://www.instagram.com/dr_howoo/");
+		assertThat(result.diagnostic().profileLikeLinkCount()).isEqualTo(4);
+		assertThat(result.diagnostic().candidateUsernames())
+				.containsExactly("dr_howoo", "dino.the.nomad");
+	}
+
+	@Test
 	void mainFallbackDoesNotInferAuthorFromCaptionMentionText() throws Exception {
 		InstagramBrowserExtractor.PostExtractionResult result = extractionFromSyntheticPage(
 				"https://www.instagram.com/p/MentionOnly123/",
@@ -464,6 +488,35 @@ class InstagramBrowserExtractorTest {
 	@Test
 	void doesNotTreatReelsReservedPathAsProfileUsername() {
 		assertThat(extractor.profileUsernameFromUrl("/reels/"))
+				.isEmpty();
+	}
+
+	@Test
+	void recognizesCanonicalAndReelsTabProfileRoutes() {
+		assertThat(extractor.profileUsernameFromUrl("/dr_howoo/"))
+				.contains("dr_howoo");
+		assertThat(extractor.profileUsernameFromUrl("/dr_howoo/reels/"))
+				.contains("dr_howoo");
+		assertThat(extractor.profileUsernameFromUrl(
+				"https://www.instagram.com/dr_howoo/reels/"))
+				.contains("dr_howoo");
+	}
+
+	@Test
+	void rejectsPostAndNonProfileRoutesWhenParsingProfileUsername() {
+		assertThat(extractor.profileUsernameFromUrl("/reels/DcVyTw1tpwA/"))
+				.isEmpty();
+		assertThat(extractor.profileUsernameFromUrl("/reels/audio/39043968185201847/"))
+				.isEmpty();
+		assertThat(extractor.profileUsernameFromUrl("/explore/tags/doctor/"))
+				.isEmpty();
+		assertThat(extractor.profileUsernameFromUrl("/accounts/login/"))
+				.isEmpty();
+		assertThat(extractor.profileUsernameFromUrl("/p/ABC123/"))
+				.isEmpty();
+		assertThat(extractor.profileUsernameFromUrl("/reel/ABC123/"))
+				.isEmpty();
+		assertThat(extractor.profileUsernameFromUrl("/dr_howoo/reels/extra/"))
 				.isEmpty();
 	}
 
