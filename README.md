@@ -13,7 +13,7 @@ Java 21과 Docker Desktop 또는 Docker Engine이 필요하다. 일상적인 loc
 스크립트는 repository root로 이동하고 다음 작업을 수행한다.
 
 - `.env.local`의 non-secret 설정을 검증해 환경변수로 내보낸다.
-- Meta access token을 process environment, macOS Keychain, hidden terminal prompt 순서로 찾는다.
+- Meta access token을 선택하고 read-only Graph API 요청으로 실제 유효성을 확인한다.
 - `docker compose up -d postgres`로 PostgreSQL을 시작하고 health 상태를 기다린다.
 - 설정 요약과 `/discovery` URL을 표시한 뒤 Spring Boot를 실행한다.
 
@@ -33,14 +33,16 @@ Java 21과 Docker Desktop 또는 Docker Engine이 필요하다. 일상적인 loc
 
 ## Meta access token
 
-token은 `.env.local`, source, DB, 로그에 저장하지 않는다. 스크립트는 다음 순서로 token을 결정한다.
+token은 `.env.local`, source, DB, 로그에 저장하지 않는다. 대화형 macOS 실행에서는 다음 순서로 token을 결정한다.
 
-1. 현재 process의 `META_ACCESS_TOKEN`을 사용한다.
-2. macOS에서는 Keychain service `hr-sns-auto-meta-access-token`을 조회한다.
+1. Keychain service `hr-sns-auto-meta-access-token`을 조회한다.
+2. Keychain 값이 없으면 현재 process의 `META_ACCESS_TOKEN`을 사용한다.
 3. 없으면 terminal에서 값을 보이지 않는 hidden prompt를 표시한다.
 4. macOS에서는 입력한 token의 Keychain 저장 여부를 묻는다.
 
-저장한 token을 교체하려면 다음 명령을 사용한다. 기존 프로젝트 전용 Keychain entry를 삭제하고 새 token을 hidden prompt로 받은 뒤 일반 실행을 계속한다.
+선택한 token은 Spring Boot 시작 전에 configured Instagram User를 `fields=id`로 읽는 최소 Graph API 요청으로 검증한다. OAuth error `code 190`일 때만 새 token hidden prompt를 표시하며, 새 token도 valid일 때만 Keychain에 저장한다. permission, rate limit, 잘못된 설정, 예상하지 못한 응답, network 실패는 token 만료로 오판하지 않고 Keychain 값을 유지한 채 실행을 중단한다.
+
+비대화형 CI나 automation에서는 명시적으로 주입한 process environment token을 사용하고 동일하게 검증한다. 저장한 token을 강제로 교체하려면 다음 명령을 사용한다. environment와 기존 Keychain 값 대신 새 token을 hidden prompt로 받고, valid이면 macOS Keychain을 교체한 뒤 일반 실행을 계속한다.
 
 ```bash
 ./scripts/run-local.sh --reset-token

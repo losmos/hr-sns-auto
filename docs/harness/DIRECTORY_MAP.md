@@ -68,6 +68,7 @@
 │       └── resources/
 └── scripts/
     ├── run-local.sh
+    ├── test_run_local.sh
     ├── instagram_native_discovery_probe.py
     └── test_instagram_native_discovery_probe.py
 ```
@@ -102,7 +103,8 @@
 
 ## scripts/
 
-- `scripts/run-local.sh`: `.env.local`, macOS Keychain 또는 hidden prompt, Docker Compose PostgreSQL을 준비하고 Spring Boot local 실행을 시작한다.
+- `scripts/run-local.sh`: `.env.local`, macOS Keychain 또는 hidden prompt, read-only Meta token startup validation, Docker Compose PostgreSQL을 준비하고 Spring Boot local 실행을 시작한다.
+- `scripts/test_run_local.sh`: 실제 Meta network와 실제 Keychain을 사용하지 않고 token source, Graph 오류 분류, replacement, secret 비노출을 검증하는 shell fixture이다.
 - `scripts/instagram_native_discovery_probe.py`: Python standard library만으로 Instagram-native candidate discovery 가능성을 live Graph API에서 확인하는 독립 probe이다.
 - `scripts/test_instagram_native_discovery_probe.py`: 외부 network 없이 probe의 URL, redaction, classification, parsing, dedupe를 확인하는 synthetic unit test이다.
 

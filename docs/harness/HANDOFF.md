@@ -2,7 +2,7 @@
 
 ## 마지막 갱신일
 
-- 2026-08-20 15:47:58 KST
+- 2026-08-23 00:56:23 KST
 
 # 중단기 작업 기억
 
@@ -24,60 +24,59 @@
 
 # 직전 작업 기억
 
-## Local 실행 UX
+## Local Meta token lifecycle UX
 
-- 일상적인 local 실행을 `./scripts/run-local.sh` 한 줄로 통합했다.
-- `.env.local`이 없으면 API version `v26.0`, IG User ID, port `18080`, browser enabled `true`, headless `false`를 대화형으로 묻고 mode `600` 파일을 생성한다.
-- `.env.local`은 `source`나 `eval`하지 않고 허용된 `KEY=value`만 파싱한다. 필수값, boolean, port, batch size를 검증하며 `META_ACCESS_TOKEN` key는 명시적으로 거부한다.
-- `.env.local.example`에는 non-secret 설정과 빈 IG User ID만 두고 실제 `.env.local`을 `.gitignore`에 추가했다. 기존 `.local/` ignore는 유지했다.
-- access token은 현재 process, macOS Keychain service `hr-sns-auto-meta-access-token`, hidden prompt 순서로 결정한다. token 값은 출력하거나 `.env.local`에 기록하지 않는다.
-- `--reset-token`은 대화형 terminal을 먼저 확인한 뒤 프로젝트 전용 Keychain entry만 삭제하고 새 token을 hidden prompt로 받는다.
-- `docker compose up -d postgres` 후 health 상태를 최대 60초 기다린다. Docker 명령, Compose plugin, daemon 오류를 구분하며 down, volume 삭제, Flyway clean, 종료 cleanup은 수행하지 않는다.
-- `--install-browser`는 Playwright 1.61.0의 `com.microsoft.playwright.CLI install chromium`을 Maven으로 실행한 뒤 일반 실행을 계속한다.
-- 실행 전 server, masked IG User ID, browser mode/data dir, PostgreSQL, token source와 `/discovery` URL을 표시하고 `exec ./mvnw spring-boot:run`으로 전환한다.
+- 일상 실행은 계속 `./scripts/run-local.sh` 한 줄이다.
+- 대화형 macOS source precedence를 `Keychain > process environment > hidden prompt`로 변경했다. Keychain이 있으면 과거 shell의 `META_ACCESS_TOKEN` export는 선택되지 않는다.
+- 비대화형 CI/automation은 명시적인 process environment token을 사용할 수 있다. 어떤 source든 startup validation을 통과해야 한다.
+- validation은 `GET https://graph.facebook.com/{version}/{META_IG_USER_ID}?fields=id` read-only 요청을 Bearer header로 보내고 configured ID가 일치하는지 확인한다.
+- Graph error `code 190`만 invalid/expired로 분류해 hidden replacement prompt로 보낸다. permission, rate limit, network, HTTP와 예상하지 못한 response는 replacement로 보내지 않고 Keychain을 변경하지 않은 채 실행을 중단한다.
+- 새 token은 최대 3회 입력할 수 있고, valid일 때만 macOS Keychain에 저장한다. 일반 invalid replacement는 저장 여부를 묻고 `--reset-token`은 env와 기존 Keychain을 무시해 valid 새 값으로 Keychain을 교체한다.
+- 기존 Keychain entry는 새 valid token의 `security add-generic-password ... -U` 성공 전 삭제하지 않는다. write 후 같은 값을 다시 읽어 실제 update 성공도 확인한다.
+- curl Bearer header와 Keychain write command는 stdin으로 전달해 token을 child process argv에 넣지 않는다. token은 validation 전 child environment에서 제거하고 Spring Boot `exec` 직전에만 export한다.
+- `.env.local` token 금지, raw token/prefix 비출력, `debug_token`·App Secret·만료 예정일·automatic exchange 제외 정책을 유지한다.
 
-## 문서와 장기 정책
+## Synthetic 검증
 
-- root `README.md`를 local 실행 primary 문서로 추가하고 최초 실행, token 교체, Chromium 설치, persistent data 유지 방법을 기록했다.
-- `docs/harness/PROJECT_CONTEXT.md`에 `DEC-20260820-local-config-secret-boundary`를 추가했다.
-- `docs/harness/DIRECTORY_MAP.md`에 README, env example, local launcher 역할을 반영했다.
+- `bash -n scripts/run-local.sh`, `bash -n scripts/test_run_local.sh`, `./scripts/run-local.sh --help`: 통과했다.
+- `./scripts/test_run_local.sh`: 10개 전체 통과했다.
+- valid response, OAuth code 190, permission code 10, curl stdin Bearer 전달, Keychain stdin `-U`, 대화형 Keychain 우선순위, invalid 새 token 재시도 후 valid만 저장, network failure 시 Keychain 보존, `--reset-token`, 비대화형 env source를 실제 network 없이 검증했다.
+- fixture output에 기존·신규 synthetic raw token이 나타나지 않는지 확인했다.
+- 실제 Meta token, Meta network, macOS Keychain은 요청에 따라 건드리지 않았다.
 
-## 검증 상태
+## Maven과 Docker 검증
 
-- `docker compose up -d postgres`, `docker compose ps`: sandbox의 Docker socket 권한 거부로 실행하지 못했다.
-- `bash -n scripts/run-local.sh`, `./scripts/run-local.sh --help`, validator helper 검증, 실행 권한, `.env.local`·`.local/` ignore 확인은 통과했다.
-- Synthetic 최초 실행에서 `.env.local` mode `600`, 기본값, hidden token 미출력·미저장을 확인했다. 검증용 `.env.local`은 제거했다.
-- Playwright CLI `--help`가 Maven `exec:3.6.3`과 현재 dependency에서 성공해 `install chromium` invocation을 확인했다. browser binary 전체 설치는 실행하지 않았다.
-- `./mvnw test`: 총 87개, failures 0, errors 11이다. PostgreSQL 비의존 76개는 통과했고 DB 연결 테스트 11개만 Docker 미기동으로 error가 발생했다.
+- `docker compose up -d postgres`, `docker compose ps`: sandbox의 Docker socket 접근 권한 거부로 실행하지 못했다.
+- `./mvnw test`: 총 87개, failures 0, errors 11이다. PostgreSQL 비의존 76개는 통과했고 DB 연결 테스트 11개만 container 미기동으로 error가 발생했다.
 - `./mvnw package`: 같은 DB 연결 error 11개로 test 단계에서 실패했다.
 - `./mvnw package -DskipTests`: compile과 executable jar package에 성공했다. 전체 package 성공을 대신하지 않는다.
 - `git diff --check`: 통과했다.
-- 실제 macOS Keychain, 실제 Meta token, instagram.com network, persistent browser profile은 검증 과정에서 건드리지 않았다.
 
 ## 변경 파일
 
-- `.gitignore`
-- `.env.local.example`
 - `README.md`
 - `scripts/run-local.sh`
+- `scripts/test_run_local.sh`
 - `docs/harness/DIRECTORY_MAP.md`
 - `docs/harness/PROJECT_CONTEXT.md`
 - `docs/harness/HANDOFF.md`
 
-## 작업 전 파일 보존
+## 작업 전 파일 보존과 범위
 
-- 작업 시작 전 미추적 `prompts/tasks/improve_local_run_experience.md`는 수정하지 않았다.
+- 작업 시작 전 미추적 `prompts/tasks/improve_local_meta_token_lifecycle.md`는 수정하지 않았다.
+- 최신 사용자 요청이 local token lifecycle 개선을 명시해 이전 추천 작업인 browser live 재검증과 Candidate identity vertical slice는 수행하지 않았다.
 - 요청 범위와 안전 경계가 명확해 clarification request는 만들지 않았다.
 
 ## 다음 추천 작업
 
-1. 사용자 macOS에서 Docker Desktop을 실행하고 `./scripts/run-local.sh --install-browser`를 최초 1회 실행한다. Chromium이 이미 있으면 `./scripts/run-local.sh`만 실행한다.
-2. 사용자 환경에서 `./mvnw test`, `./mvnw package` 전체 성공을 확인한다.
-3. `http://localhost:18080/discovery`에서 기존 session과 이전 실패 item을 live 재검증한다.
+1. 사용자 macOS에서 expired Keychain token과 valid 새 token으로 `./scripts/run-local.sh`를 smoke 검증하고 Keychain update/read-back을 확인한다.
+2. Docker Desktop이 실행되는 사용자 환경에서 `./mvnw test`, `./mvnw package` 전체 성공을 확인한다.
+3. 기존 추천 작업인 `/discovery` browser enrichment live 재검증을 이어간다.
 4. browser enrichment가 안정화되면 `DiscoveryBrowserObservation → Candidate 연결 + username/history identity` vertical slice를 진행한다.
 
 ## 주의할 점
 
-- `.env.local`에 token을 넣지 않고 Keychain 또는 hidden prompt를 사용한다.
+- `.env.local`에 token을 넣지 않는다. 일상적인 macOS token store는 프로젝트 전용 Keychain이다.
+- Graph `code 190` 외 오류에서 token 교체를 유도하거나 Keychain 값을 삭제하지 않는다.
 - session profile은 일반 Chrome 기본 profile과 공유하지 않는다.
 - local thin slice에는 인증이 없으므로 외부 network에 노출하지 않는다.
